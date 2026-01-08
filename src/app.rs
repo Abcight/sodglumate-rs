@@ -550,6 +550,11 @@ impl eframe::App for SodglumateApp {
 		// Input handling
 		let space_pressed = ctx.input(|i| i.key_pressed(egui::Key::Space));
 		let shift_pressed = ctx.input(|i| i.modifiers.shift);
+		let c_pressed = ctx.input(|i| i.key_pressed(egui::Key::C));
+
+		if c_pressed {
+			self.auto_play = !self.auto_play;
+		}
 
 		if space_pressed {
 			let ctrl_pressed = ctx.input(|i| i.modifiers.ctrl);
