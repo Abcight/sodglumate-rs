@@ -4,3 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+eframe = "0.29.1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+image = { version = "0.25", features = ["jpeg", "png", "webp", "gif"] }
+egui_extras = { version = "0.29.1", features = ["all_loaders"] }
+egui-video = "0.9.0"
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.11"
