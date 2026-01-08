@@ -1,6 +1,7 @@
 use crate::api::{E621Client, Post};
 use eframe::egui;
 use egui_video::Player;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -31,6 +32,10 @@ pub struct SodglumateApp {
 	error_msg: Option<String>,
 	current_media: Option<(String, LoadedMedia)>,
 
+	// Caching & Prefetching
+	media_cache: HashMap<String, LoadedMedia>,
+	loading_set: HashSet<String>,
+
 	// Settings
 	slide_show_timer: Option<std::time::Instant>,
 	auto_play: bool,
@@ -42,7 +47,7 @@ impl SodglumateApp {
 		let (sender, receiver) = mpsc::channel(100);
 
 		Self {
-			search_query: "male ~solo ~gay wolf abs order:score".to_owned(),
+			search_query: "~gay ~male solo abs wolf order:score -video".to_owned(),
 			posts: Vec::new(),
 			current_index: 0,
 			client: Arc::new(E621Client::new()),
@@ -51,6 +56,8 @@ impl SodglumateApp {
 			is_loading: false,
 			error_msg: None,
 			current_media: None,
+			media_cache: HashMap::new(),
+			loading_set: HashSet::new(),
 			slide_show_timer: None,
 			auto_play: false,
 			auto_play_delay: std::time::Duration::from_secs(5),
@@ -63,6 +70,8 @@ impl SodglumateApp {
 		self.posts.clear();
 		self.current_index = 0;
 		self.current_media = None;
+		self.media_cache.clear();
+		self.loading_set.clear();
 
 		let client = self.client.clone();
 		let query = self.search_query.clone();
@@ -77,97 +86,78 @@ impl SodglumateApp {
 		});
 	}
 
-	fn load_current_media(&mut self, ctx: &egui::Context) {
-		if let Some(post) = self.posts.get(self.current_index) {
-			if let Some(url) = &post.file.url {
-				// Check if already loaded
-				if let Some((current_url, _)) = &self.current_media {
-					if current_url == url {
-						return;
-					}
+	fn load_media_internal(&mut self, ctx: &egui::Context, url: String, is_video: bool) {
+		if self.loading_set.contains(&url) || self.media_cache.contains_key(&url) {
+			return;
+		}
+
+		// Rate Limiting: Max 2 concurrent downloads
+		if self.loading_set.len() >= 2 {
+			return;
+		}
+
+		self.loading_set.insert(url.clone());
+
+		if is_video {
+			match Player::new(ctx, &url) {
+				Ok(player) => {
+					// We don't start it yet.
+					self.media_cache
+						.insert(url.clone(), LoadedMedia::Video(player));
+					self.loading_set.remove(&url);
 				}
+				Err(e) => {
+					log::error!("Failed to prefetch video {}: {}", url, e);
+					self.loading_set.remove(&url);
+				}
+			}
+		} else {
+			// Load Image logic
+			let url_clone = url.clone();
+			let sender = self.sender.clone();
+			let ctx_clone = ctx.clone();
+			log::info!("Fetching image from URL: {}", url_clone);
 
-				// Determine type
-				let ext = post.file.ext.to_lowercase();
-				let is_video = matches!(ext.as_str(), "mp4" | "webm" | "gif");
-
-				self.current_media = None;
-				self.is_loading = true;
-
-				if is_video {
-					// Load Video
-					match Player::new(ctx, url) {
-						Ok(mut player) => {
-							player.start();
-							self.current_media = Some((url.clone(), LoadedMedia::Video(player)));
-							self.is_loading = false;
+			tokio::spawn(async move {
+				let resp = reqwest::get(&url_clone).await;
+				match resp {
+					Ok(r) => {
+						let status = r.status();
+						if !status.is_success() {
+							let _ = sender
+								.send(AppMessage::ImageLoaded(
+									url_clone.clone(),
+									Err(anyhow::anyhow!("HTTP Status: {}", status)),
+								))
+								.await;
+							ctx_clone.request_repaint();
+							return;
 						}
-						Err(e) => {
-							log::error!("Failed to create video player: {}", e);
-							self.error_msg = Some(format!("Failed to init video: {}", e));
-							self.is_loading = false;
-						}
-					}
-				} else {
-					// Load Image logic
-					let url_clone = url.clone();
-					let sender = self.sender.clone();
-					let ctx_clone = ctx.clone();
-					log::info!("Fetching image from URL: {}", url_clone);
-
-					tokio::spawn(async move {
-						let resp = reqwest::get(&url_clone).await;
-						match resp {
-							Ok(r) => {
-								let status = r.status();
-								if !status.is_success() {
-									let _ = sender
-										.send(AppMessage::ImageLoaded(
-											url_clone,
-											Err(anyhow::anyhow!("HTTP Status: {}", status)),
-										))
-										.await;
-									ctx_clone.request_repaint();
-									return;
-								}
-								match r.bytes().await {
-									Ok(bytes) => {
-										// Decode image
-										match image::load_from_memory(&bytes) {
-											Ok(img) => {
-												let size =
-													[img.width() as usize, img.height() as usize];
-												let img_buffer = img.to_rgba8();
-												let pixels = img_buffer.as_flat_samples();
-												let color_image =
-													egui::ColorImage::from_rgba_unmultiplied(
-														size,
-														pixels.as_slice(),
-													);
-												let _ = sender
-													.send(AppMessage::ImageLoaded(
-														url_clone,
-														Ok(color_image),
-													))
-													.await;
-												ctx_clone.request_repaint();
-											}
-											Err(e) => {
-												let _ = sender
-													.send(AppMessage::ImageLoaded(
-														url_clone,
-														Err(anyhow::anyhow!("Decode error: {}", e)),
-													))
-													.await;
-												ctx_clone.request_repaint();
-											}
-										}
+						match r.bytes().await {
+							Ok(bytes) => {
+								// Decode image
+								match image::load_from_memory(&bytes) {
+									Ok(img) => {
+										let size = [img.width() as usize, img.height() as usize];
+										let img_buffer = img.to_rgba8();
+										let pixels = img_buffer.as_flat_samples();
+										let color_image = egui::ColorImage::from_rgba_unmultiplied(
+											size,
+											pixels.as_slice(),
+										);
+										let _ = sender
+											.send(AppMessage::ImageLoaded(
+												url_clone,
+												Ok(color_image),
+											))
+											.await;
+										ctx_clone.request_repaint();
 									}
 									Err(e) => {
 										let _ = sender
 											.send(AppMessage::ImageLoaded(
 												url_clone,
-												Err(anyhow::anyhow!("Bytes error: {}", e)),
+												Err(anyhow::anyhow!("Decode error: {}", e)),
 											))
 											.await;
 										ctx_clone.request_repaint();
@@ -178,13 +168,114 @@ impl SodglumateApp {
 								let _ = sender
 									.send(AppMessage::ImageLoaded(
 										url_clone,
-										Err(anyhow::anyhow!("Network error: {}", e)),
+										Err(anyhow::anyhow!("Bytes error: {}", e)),
 									))
 									.await;
 								ctx_clone.request_repaint();
 							}
 						}
-					});
+					}
+					Err(e) => {
+						let _ = sender
+							.send(AppMessage::ImageLoaded(
+								url_clone,
+								Err(anyhow::anyhow!("Network error: {}", e)),
+							))
+							.await;
+						ctx_clone.request_repaint();
+					}
+				}
+			});
+		}
+	}
+
+	fn prefetch_next(&mut self, ctx: &egui::Context, count: usize) {
+		if self.posts.is_empty() {
+			return;
+		}
+
+		let mut targets = Vec::new();
+		for i in 1..=count {
+			let idx = (self.current_index + i) % self.posts.len();
+			if let Some(post) = self.posts.get(idx) {
+				if let Some(url) = &post.file.url {
+					let ext = post.file.ext.to_lowercase();
+					let is_video = matches!(ext.as_str(), "mp4" | "webm" | "gif");
+					targets.push((url.clone(), is_video));
+				}
+			}
+		}
+
+		for (url, is_video) in targets {
+			self.load_media_internal(ctx, url, is_video);
+		}
+	}
+
+	fn load_current_media(&mut self, ctx: &egui::Context) {
+		let target = if let Some(post) = self.posts.get(self.current_index) {
+			if let Some(url) = &post.file.url {
+				let ext = post.file.ext.to_lowercase();
+				let is_video = matches!(ext.as_str(), "mp4" | "webm" | "gif");
+				Some((url.clone(), is_video))
+			} else {
+				None
+			}
+		} else {
+			None
+		};
+
+		if let Some((url, is_video)) = target {
+			// Check if already loaded
+			if let Some((current_url, _)) = &self.current_media {
+				if current_url == &url {
+					return;
+				}
+			}
+
+			self.current_media = None;
+
+			// 1. Check Cache
+			if let Some(media) = self.media_cache.remove(&url) {
+				match media {
+					LoadedMedia::Video(mut player) => {
+						player.start();
+						self.current_media = Some((url.clone(), LoadedMedia::Video(player)));
+					}
+					LoadedMedia::Image(texture) => {
+						self.current_media = Some((url.clone(), LoadedMedia::Image(texture)));
+					}
+				}
+				self.is_loading = false;
+			} else {
+				// Not in cache, Load it.
+				self.is_loading = true;
+
+				self.load_media_internal(ctx, url.clone(), is_video);
+
+				// If it was synchronous video load
+				if is_video {
+					if let Some(LoadedMedia::Video(mut player)) = self.media_cache.remove(&url) {
+						player.start();
+						self.current_media = Some((url.clone(), LoadedMedia::Video(player)));
+						self.is_loading = false;
+					}
+				}
+			}
+
+			// Prefetch Next 2
+			self.prefetch_next(ctx, 2);
+		}
+	}
+
+	fn cache_current_media(&mut self) {
+		if let Some((url, media)) = self.current_media.take() {
+			match media {
+				LoadedMedia::Video(mut player) => {
+					player.stop();
+					self.media_cache.insert(url, LoadedMedia::Video(player));
+				}
+				LoadedMedia::Image(handle) => {
+					self.media_cache.insert(url, LoadedMedia::Image(handle));
 				}
 			}
 		}
@@ -194,6 +285,7 @@ impl SodglumateApp {
 		if self.posts.is_empty() {
 			return;
 		}
+		self.cache_current_media();
 		self.current_index = (self.current_index + 1) % self.posts.len();
 		self.load_current_media(ctx);
 	}
@@ -202,6 +294,7 @@ impl SodglumateApp {
 		if self.posts.is_empty() {
 			return;
 		}
+		self.cache_current_media();
 		if self.current_index == 0 {
 			self.current_index = self.posts.len() - 1;
 		} else {
@@ -232,21 +325,36 @@ impl eframe::App for SodglumateApp {
 					}
 				}
 				AppMessage::ImageLoaded(url, res) => {
-					if let Some(post) = self.posts.get(self.current_index) {
-						if post.file.url.as_ref() == Some(&url) {
-							self.is_loading = false;
-							match res {
-								Ok(img) => {
-									let texture = ctx.load_texture(
-										"post_image",
-										img,
-										egui::TextureOptions::LINEAR,
-									);
-									self.current_media = Some((url, LoadedMedia::Image(texture)));
+					self.loading_set.remove(&url);
+					match res {
+						Ok(img) => {
+							let texture =
+								ctx.load_texture("post_image", img, egui::TextureOptions::LINEAR);
+
+							// Add to cache
+							self.media_cache
+								.insert(url.clone(), LoadedMedia::Image(texture.clone()));
+
+							// If this is the CURRENT image we are waiting for, set it.
+							if let Some(post) = self.posts.get(self.current_index) {
+								if post.file.url.as_ref() == Some(&url) {
+									// Move from cache to current
+									if let Some(media) = self.media_cache.remove(&url) {
+										self.current_media = Some((url, media));
+										self.is_loading = false;
+									}
 								}
-								Err(e) => {
+							}
+						}
+						Err(e) => {
+							// Only show error if it's the current one
+							if let Some(post) = self.posts.get(self.current_index) {
+								if post.file.url.as_ref() == Some(&url) {
 									self.error_msg = Some(format!("Failed to load image: {}", e));
+									self.is_loading = false;
 								}
+							} else {
+								log::warn!("Failed to load prefetched image {}: {}", url, e);
 							}
 						}
 					}
@@ -256,10 +364,10 @@ impl eframe::App for SodglumateApp {
 
 		// Input handling
 		let space_pressed = ctx.input(|i| i.key_pressed(egui::Key::Space));
-		let shift_held = ctx.input(|i| i.modifiers.shift);
+		let shift_pressed = ctx.input(|i| i.modifiers.shift);
 
 		if space_pressed {
-			if shift_held {
+			if shift_pressed {
 				self.prev_image(ctx);
 			} else {
 				self.next_image(ctx);
@@ -327,16 +435,16 @@ impl eframe::App for SodglumateApp {
 					let mut scroll_delta = egui::Vec2::ZERO;
 					let speed = 20.0;
 
-					if ui.input(|i| i.key_down(egui::Key::ArrowRight)) {
+					if ui.input(|i| i.key_down(egui::Key::ArrowRight) || i.key_down(egui::Key::D)) {
 						scroll_delta.x -= speed;
 					}
-					if ui.input(|i| i.key_down(egui::Key::ArrowLeft)) {
+					if ui.input(|i| i.key_down(egui::Key::ArrowLeft) || i.key_down(egui::Key::A)) {
 						scroll_delta.x += speed;
 					}
-					if ui.input(|i| i.key_down(egui::Key::ArrowDown)) {
+					if ui.input(|i| i.key_down(egui::Key::ArrowDown) || i.key_down(egui::Key::S)) {
 						scroll_delta.y -= speed;
 					}
-					if ui.input(|i| i.key_down(egui::Key::ArrowUp)) {
+					if ui.input(|i| i.key_down(egui::Key::ArrowUp) || i.key_down(egui::Key::W)) {
 						scroll_delta.y += speed;
 					}
 
