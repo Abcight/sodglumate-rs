@@ -679,43 +679,54 @@ impl eframe::App for SodglumateApp {
 				.show(ctx, |ui| {
 					// Background for readability
 					egui::Frame::popup(ui.style())
-						.fill(egui::Color32::from_black_alpha(20))
+						.fill(egui::Color32::TRANSPARENT)
 						.stroke(Stroke::new(0.0, egui::Color32::TRANSPARENT))
 						.shadow(Shadow::NONE)
-						.inner_margin(egui::Margin::same(10.0))
-						.rounding(egui::Rounding::same(8.0))
+						.inner_margin(egui::Margin::same(24.0))
 						.show(ui, |ui| {
-							let state = &self.breathing_state;
-							let elapsed = state.start_time.elapsed();
-							let remaining = state.duration.saturating_sub(elapsed).as_secs() + 1;
+							ui.with_layout(
+								egui::Layout::right_to_left(egui::Align::Center),
+								|ui| {
+									let state = &self.breathing_state;
+									let elapsed = state.start_time.elapsed();
+									let remaining =
+										state.duration.saturating_sub(elapsed).as_secs() + 1;
 
-							match state.phase {
-								BreathingPhase::Prepare => {
-									ui.label(
-										egui::RichText::new(format!("Prepare, {}...", remaining))
-											.size(48.0)
-											.color(egui::Color32::RED)
-											.strong(),
-									);
-								}
-								BreathingPhase::Inhale => {
-									ui.label(
-										egui::RichText::new("Inhale")
-											.size(48.0)
-											.color(egui::Color32::YELLOW)
-											.strong(),
-									);
-								}
-								BreathingPhase::Release => {
-									ui.label(
-										egui::RichText::new("Release")
-											.size(48.0)
-											.color(egui::Color32::GREEN)
-											.strong(),
-									);
-								}
-								BreathingPhase::Idle => {}
-							}
+									match state.phase {
+										BreathingPhase::Prepare => {
+											ui.label(
+												egui::RichText::new(format!(
+													"PREPARE {}",
+													remaining
+												))
+												.family(egui::FontFamily::Monospace)
+												.size(36.0)
+												.color(egui::Color32::RED)
+												.strong(),
+											);
+										}
+										BreathingPhase::Inhale => {
+											ui.label(
+												egui::RichText::new("INHALE")
+													.family(egui::FontFamily::Monospace)
+													.size(36.0)
+													.color(egui::Color32::YELLOW)
+													.strong(),
+											);
+										}
+										BreathingPhase::Release => {
+											ui.label(
+												egui::RichText::new("Release")
+													.family(egui::FontFamily::Monospace)
+													.size(36.0)
+													.color(egui::Color32::GREEN)
+													.strong(),
+											);
+										}
+										BreathingPhase::Idle => {}
+									}
+								},
+							);
 						});
 				});
 		}
