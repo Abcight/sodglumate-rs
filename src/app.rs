@@ -1,8 +1,10 @@
 use crate::api::{E621Client, Post};
-use eframe::egui;
+use eframe::egui::{self, Shadow, Stroke};
 use egui_video::Player;
+use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 #[derive(Debug)]
@@ -18,6 +20,21 @@ pub enum AppMessage {
 pub enum LoadedMedia {
 	Image(egui::TextureHandle),
 	Video(Player),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BreathingPhase {
+	Prepare,
+	Inhale,
+	Release,
+	Idle,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BreathingState {
+	phase: BreathingPhase,
+	start_time: Instant,
+	duration: Duration,
 }
 
 pub struct SodglumateApp {
@@ -46,6 +63,10 @@ pub struct SodglumateApp {
 	slide_show_timer: Option<std::time::Instant>,
 	auto_play: bool,
 	auto_play_delay: std::time::Duration,
+
+	// Breathing Overlay
+	show_breathing_overlay: bool,
+	breathing_state: BreathingState,
 }
 
 impl SodglumateApp {
@@ -69,6 +90,12 @@ impl SodglumateApp {
 			slide_show_timer: None,
 			auto_play: false,
 			auto_play_delay: std::time::Duration::from_secs(5),
+			show_breathing_overlay: false,
+			breathing_state: BreathingState {
+				phase: BreathingPhase::Prepare,
+				start_time: Instant::now(),
+				duration: Duration::from_secs(5),
+			},
 		}
 	}
 
@@ -351,10 +378,72 @@ impl SodglumateApp {
 		}
 		self.load_current_media(ctx);
 	}
+
+	fn update_breathing(&mut self, ctx: &egui::Context) {
+		let elapsed = self.breathing_state.start_time.elapsed();
+		if elapsed >= self.breathing_state.duration {
+			// Transition
+			let mut rng = rand::rng();
+			match self.breathing_state.phase {
+				BreathingPhase::Prepare => {
+					// -> Inhale (5-12s)
+					let duration_secs = rng.random_range(5..=12);
+					self.breathing_state = BreathingState {
+						phase: BreathingPhase::Inhale,
+						start_time: Instant::now(),
+						duration: Duration::from_secs(duration_secs),
+					};
+				}
+				BreathingPhase::Inhale => {
+					// -> Release (4s)
+					self.breathing_state = BreathingState {
+						phase: BreathingPhase::Release,
+						start_time: Instant::now(),
+						duration: Duration::from_secs(4),
+					};
+				}
+				BreathingPhase::Release => {
+					// 20% -> Inhale
+					// 80% -> Idle (20-40s)
+					if rng.random_bool(0.2) {
+						let duration_secs = rng.random_range(5..=12);
+						self.breathing_state = BreathingState {
+							phase: BreathingPhase::Inhale,
+							start_time: Instant::now(),
+							duration: Duration::from_secs(duration_secs),
+						};
+					} else {
+						let duration_secs = rng.random_range(20..=40);
+						self.breathing_state = BreathingState {
+							phase: BreathingPhase::Idle,
+							start_time: Instant::now(),
+							duration: Duration::from_secs(duration_secs),
+						};
+					}
+				}
+				BreathingPhase::Idle => {
+					// -> Prepare (5s)
+					self.breathing_state = BreathingState {
+						phase: BreathingPhase::Prepare,
+						start_time: Instant::now(),
+						duration: Duration::from_secs(5),
+					};
+				}
+			}
+		}
+
+		// Continuous repaint if overlay is shown
+		if self.show_breathing_overlay {
+			ctx.request_repaint();
+		}
+	}
 }
 
 impl eframe::App for SodglumateApp {
 	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+		// Update Breathing State (Always running)
+		self.update_breathing(ctx);
+
 		while let Ok(msg) = self.receiver.try_recv() {
 			match msg {
 				AppMessage::PostsFetched {
@@ -489,6 +578,8 @@ impl eframe::App for SodglumateApp {
 						self.auto_play_delay = std::time::Duration::from_secs_f32(seconds);
 					}
 				}
+				ui.separator();
+				ui.checkbox(&mut self.show_breathing_overlay, "Breathing Overlay");
 			});
 		});
 
@@ -579,6 +670,54 @@ impl eframe::App for SodglumateApp {
 			}
 		} else {
 			self.slide_show_timer = None;
+		}
+
+		// Breathing Overlay UI
+		if self.show_breathing_overlay {
+			egui::Area::new(egui::Id::new("breathing_overlay"))
+				.anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-10.0, -10.0))
+				.show(ctx, |ui| {
+					// Background for readability
+					egui::Frame::popup(ui.style())
+						.fill(egui::Color32::from_black_alpha(20))
+						.stroke(Stroke::new(0.0, egui::Color32::TRANSPARENT))
+						.shadow(Shadow::NONE)
+						.inner_margin(egui::Margin::same(10.0))
+						.rounding(egui::Rounding::same(8.0))
+						.show(ui, |ui| {
+							let state = &self.breathing_state;
+							let elapsed = state.start_time.elapsed();
+							let remaining = state.duration.saturating_sub(elapsed).as_secs() + 1;
+
+							match state.phase {
+								BreathingPhase::Prepare => {
+									ui.label(
+										egui::RichText::new(format!("Prepare, {}...", remaining))
+											.size(48.0)
+											.color(egui::Color32::RED)
+											.strong(),
+									);
+								}
+								BreathingPhase::Inhale => {
+									ui.label(
+										egui::RichText::new("Inhale")
+											.size(48.0)
+											.color(egui::Color32::YELLOW)
+											.strong(),
+									);
+								}
+								BreathingPhase::Release => {
+									ui.label(
+										egui::RichText::new("Release")
+											.size(48.0)
+											.color(egui::Color32::GREEN)
+											.strong(),
+									);
+								}
+								BreathingPhase::Idle => {}
+							}
+						});
+				});
 		}
 	}
 }
