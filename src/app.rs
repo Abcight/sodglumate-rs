@@ -7,7 +7,11 @@ use tokio::sync::mpsc;
 
 #[derive(Debug)]
 pub enum AppMessage {
-	SearchCompleted(anyhow::Result<Vec<Post>>),
+	PostsFetched {
+		posts: anyhow::Result<Vec<Post>>,
+		page: u32,
+		is_new_search: bool,
+	},
 	ImageLoaded(String, anyhow::Result<egui::ColorImage>),
 }
 
@@ -35,6 +39,8 @@ pub struct SodglumateApp {
 	// Caching & Prefetching
 	media_cache: HashMap<String, LoadedMedia>,
 	loading_set: HashSet<String>,
+	current_page: u32,
+	fetch_pending: bool,
 
 	// Settings
 	slide_show_timer: Option<std::time::Instant>,
@@ -58,6 +64,8 @@ impl SodglumateApp {
 			current_media: None,
 			media_cache: HashMap::new(),
 			loading_set: HashSet::new(),
+			current_page: 1,
+			fetch_pending: false,
 			slide_show_timer: None,
 			auto_play: false,
 			auto_play_delay: std::time::Duration::from_secs(5),
@@ -72,6 +80,8 @@ impl SodglumateApp {
 		self.current_media = None;
 		self.media_cache.clear();
 		self.loading_set.clear();
+		self.current_page = 1;
+		self.fetch_pending = false;
 
 		let client = self.client.clone();
 		let query = self.search_query.clone();
@@ -81,7 +91,39 @@ impl SodglumateApp {
 		let limit = 50;
 		tokio::spawn(async move {
 			let result = client.search_posts(&query, limit, 1).await;
-			let _ = sender.send(AppMessage::SearchCompleted(result)).await;
+			let _ = sender
+				.send(AppMessage::PostsFetched {
+					posts: result,
+					page: 1,
+					is_new_search: true,
+				})
+				.await;
+			ctx_clone.request_repaint();
+		});
+	}
+
+	fn fetch_next_page(&mut self, ctx: &egui::Context) {
+		if self.fetch_pending {
+			return;
+		}
+		self.fetch_pending = true;
+
+		let client = self.client.clone();
+		let query = self.search_query.clone();
+		let sender = self.sender.clone();
+		let ctx_clone = ctx.clone();
+		let next_page = self.current_page + 1;
+
+		let limit = 50;
+		tokio::spawn(async move {
+			let result = client.search_posts(&query, limit, next_page).await;
+			let _ = sender
+				.send(AppMessage::PostsFetched {
+					posts: result,
+					page: next_page,
+					is_new_search: false,
+				})
+				.await;
 			ctx_clone.request_repaint();
 		});
 	}
@@ -264,6 +306,13 @@ impl SodglumateApp {
 
 			// Prefetch Next 2
 			self.prefetch_next(ctx, 2);
+
+			// Pagination Check
+			if self.posts.len() >= 5 {
+				if self.current_index >= self.posts.len() - 5 {
+					self.fetch_next_page(ctx);
+				}
+			}
 		}
 	}
 
@@ -308,19 +357,38 @@ impl eframe::App for SodglumateApp {
 	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 		while let Ok(msg) = self.receiver.try_recv() {
 			match msg {
-				AppMessage::SearchCompleted(res) => {
-					self.is_loading = false;
+				AppMessage::PostsFetched {
+					posts: res,
+					page,
+					is_new_search,
+				} => {
+					self.fetch_pending = false;
 					match res {
-						Ok(posts) => {
-							self.posts = posts;
-							if !self.posts.is_empty() {
-								self.load_current_media(ctx);
+						Ok(new_posts) => {
+							if is_new_search {
+								self.is_loading = false;
+								self.posts = new_posts;
+								self.current_page = page;
+								if !self.posts.is_empty() {
+									self.load_current_media(ctx);
+								} else {
+									self.error_msg = Some("No posts found".to_string());
+								}
 							} else {
-								self.error_msg = Some("No posts found".to_string());
+								// Append
+								if !new_posts.is_empty() {
+									self.posts.extend(new_posts);
+									self.current_page = page;
+								}
 							}
 						}
 						Err(e) => {
-							self.error_msg = Some(format!("Search failed: {}", e));
+							if is_new_search {
+								self.is_loading = false;
+								self.error_msg = Some(format!("Search failed: {}", e));
+							} else {
+								log::error!("Failed to fetch page {}: {}", page, e);
+							}
 						}
 					}
 				}
