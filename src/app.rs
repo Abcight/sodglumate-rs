@@ -89,7 +89,7 @@ impl SodglumateApp {
 			fetch_pending: false,
 			slide_show_timer: None,
 			auto_play: false,
-			auto_play_delay: std::time::Duration::from_secs(5),
+			auto_play_delay: std::time::Duration::from_secs(15),
 			show_breathing_overlay: false,
 			breathing_state: BreathingState {
 				phase: BreathingPhase::Prepare,
@@ -692,38 +692,59 @@ impl eframe::App for SodglumateApp {
 									let remaining =
 										state.duration.saturating_sub(elapsed).as_secs() + 1;
 
-									match state.phase {
+									let (text, color) = match state.phase {
 										BreathingPhase::Prepare => {
-											ui.label(
-												egui::RichText::new(format!(
-													"PREPARE {}",
-													remaining
-												))
-												.family(egui::FontFamily::Monospace)
-												.size(36.0)
-												.color(egui::Color32::RED)
-												.strong(),
-											);
+											(format!("PREPARE {}", remaining), egui::Color32::RED)
 										}
 										BreathingPhase::Inhale => {
-											ui.label(
-												egui::RichText::new("INHALE")
-													.family(egui::FontFamily::Monospace)
-													.size(36.0)
-													.color(egui::Color32::YELLOW)
-													.strong(),
-											);
+											("INHALE".to_string(), egui::Color32::YELLOW)
 										}
 										BreathingPhase::Release => {
-											ui.label(
-												egui::RichText::new("Release")
-													.family(egui::FontFamily::Monospace)
-													.size(36.0)
-													.color(egui::Color32::GREEN)
-													.strong(),
+											("RELEASE".to_string(), egui::Color32::GREEN)
+										}
+										BreathingPhase::Idle => {
+											("".to_string(), egui::Color32::TRANSPARENT)
+										}
+									};
+
+									if !text.is_empty() {
+										let font_id = egui::FontId::monospace(36.0);
+
+										let shadow_galley = ui.painter().layout_no_wrap(
+											text.clone(),
+											font_id.clone(),
+											egui::Color32::BLACK,
+										);
+
+										let galley =
+											ui.painter().layout_no_wrap(text, font_id, color);
+
+										let (rect, _) = ui.allocate_exact_size(
+											galley.size(),
+											egui::Sense::hover(),
+										);
+
+										let shadow_size = 2.0;
+										let offsets = [
+											egui::vec2(-shadow_size, -shadow_size),
+											egui::vec2(0.0, -shadow_size),
+											egui::vec2(shadow_size, -shadow_size),
+											egui::vec2(-shadow_size, 0.0),
+											egui::vec2(shadow_size, 0.0),
+											egui::vec2(-shadow_size, shadow_size),
+											egui::vec2(0.0, shadow_size),
+											egui::vec2(shadow_size, shadow_size),
+										];
+
+										for offset in offsets {
+											ui.painter().galley(
+												rect.min + offset,
+												shadow_galley.clone(),
+												egui::Color32::BLACK,
 											);
 										}
-										BreathingPhase::Idle => {}
+
+										ui.painter().galley(rect.min, galley, color);
 									}
 								},
 							);
