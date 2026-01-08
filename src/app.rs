@@ -67,6 +67,11 @@ pub struct SodglumateApp {
 	// Breathing Overlay
 	show_breathing_overlay: bool,
 	breathing_state: BreathingState,
+
+	// Auto-Panning
+	image_load_time: Instant,
+	user_has_panned: bool,
+	auto_pan_cycle_duration: f32,
 }
 
 impl SodglumateApp {
@@ -96,6 +101,9 @@ impl SodglumateApp {
 				start_time: Instant::now(),
 				duration: Duration::from_secs(5),
 			},
+			image_load_time: Instant::now(),
+			user_has_panned: false,
+			auto_pan_cycle_duration: 30.0,
 		}
 	}
 
@@ -302,6 +310,8 @@ impl SodglumateApp {
 			}
 
 			self.current_media = None;
+			self.image_load_time = Instant::now();
+			self.user_has_panned = false;
 
 			// 1. Check Cache
 			if let Some(media) = self.media_cache.remove(&url) {
@@ -579,7 +589,17 @@ impl eframe::App for SodglumateApp {
 					}
 				}
 				ui.separator();
+				ui.separator();
 				ui.checkbox(&mut self.show_breathing_overlay, "Breathing Overlay");
+
+				ui.separator();
+				let mut speed = self.auto_pan_cycle_duration;
+				if ui
+					.add(egui::Slider::new(&mut speed, 10.0..=120.0).text("Pan Speed (s)"))
+					.changed()
+				{
+					self.auto_pan_cycle_duration = speed;
+				}
 			});
 		});
 
@@ -590,21 +610,29 @@ impl eframe::App for SodglumateApp {
 			} else if let Some(err) = &self.error_msg {
 				ui.label(egui::RichText::new(err).color(egui::Color32::RED));
 			} else if let Some((_, media)) = &mut self.current_media {
-				let handle_scroll_input = |ui: &mut egui::Ui| {
+				let pan_cycle = self.auto_pan_cycle_duration;
+				let load_time = self.image_load_time;
+				let mut user_panned = self.user_has_panned;
+
+				let handle_scroll_input = |ui: &mut egui::Ui, input_active: &mut bool| {
 					let mut scroll_delta = egui::Vec2::ZERO;
 					let speed = 20.0;
 
 					if ui.input(|i| i.key_down(egui::Key::ArrowRight) || i.key_down(egui::Key::D)) {
 						scroll_delta.x -= speed;
+						*input_active = true;
 					}
 					if ui.input(|i| i.key_down(egui::Key::ArrowLeft) || i.key_down(egui::Key::A)) {
 						scroll_delta.x += speed;
+						*input_active = true;
 					}
 					if ui.input(|i| i.key_down(egui::Key::ArrowDown) || i.key_down(egui::Key::S)) {
 						scroll_delta.y -= speed;
+						*input_active = true;
 					}
 					if ui.input(|i| i.key_down(egui::Key::ArrowUp) || i.key_down(egui::Key::W)) {
 						scroll_delta.y += speed;
+						*input_active = true;
 					}
 
 					if scroll_delta != egui::Vec2::ZERO {
@@ -623,14 +651,35 @@ impl eframe::App for SodglumateApp {
 
 						let display_size = img_size * scale;
 
-						egui::ScrollArea::both().show(ui, |ui| {
-							handle_scroll_input(ui);
+						let mut scroll_area = egui::ScrollArea::both().scroll_bar_visibility(
+							egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+						);
+
+						// Auto-Pan
+						if !user_panned {
+							let elapsed = load_time.elapsed().as_secs_f32();
+							let cycle = (elapsed * 2.0 * std::f32::consts::PI) / pan_cycle;
+							let factor = cycle.sin() * 0.5 + 0.5;
+
+							let overflow = display_size - available_size;
+							if overflow.x > 0.0 {
+								scroll_area =
+									scroll_area.horizontal_scroll_offset(overflow.x * factor);
+							}
+							if overflow.y > 0.0 {
+								scroll_area =
+									scroll_area.vertical_scroll_offset(overflow.y * factor);
+							}
+							ctx.request_repaint();
+						}
+
+						scroll_area.show(ui, |ui| {
+							handle_scroll_input(ui, &mut user_panned);
 							ui.add(egui::Image::new(&*texture).fit_to_exact_size(display_size));
 						});
 					}
 					LoadedMedia::Video(player) => {
 						let available_size = ui.available_size();
-
 						let width = player.size.x;
 						let height = player.size.y;
 
@@ -639,11 +688,31 @@ impl eframe::App for SodglumateApp {
 							let width_ratio = available_size.x / img_size.x;
 							let height_ratio = available_size.y / img_size.y;
 							let scale = width_ratio.max(height_ratio);
-
 							let display_size = img_size * scale;
 
-							egui::ScrollArea::both().show(ui, |ui| {
-								handle_scroll_input(ui);
+							let mut scroll_area = egui::ScrollArea::both().scroll_bar_visibility(
+								egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+							);
+
+							if !user_panned {
+								let elapsed = load_time.elapsed().as_secs_f32();
+								let cycle = (elapsed * 2.0 * std::f32::consts::PI) / pan_cycle;
+								let factor = cycle.sin() * 0.5 + 0.5;
+
+								let overflow = display_size - available_size;
+								if overflow.x > 0.0 {
+									scroll_area =
+										scroll_area.horizontal_scroll_offset(overflow.x * factor);
+								}
+								if overflow.y > 0.0 {
+									scroll_area =
+										scroll_area.vertical_scroll_offset(overflow.y * factor);
+								}
+								ctx.request_repaint();
+							}
+
+							scroll_area.show(ui, |ui| {
+								handle_scroll_input(ui, &mut user_panned);
 								player.ui(ui, display_size);
 							});
 						} else {
@@ -651,6 +720,7 @@ impl eframe::App for SodglumateApp {
 						}
 					}
 				}
+				self.user_has_panned = user_panned;
 			} else {
 				ui.centered_and_justified(|ui| {
 					ui.label("Enter a query and search to start.");
