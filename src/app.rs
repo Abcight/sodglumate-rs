@@ -395,6 +395,9 @@ impl SodglumateApp {
 		self.cache_current_media();
 		self.current_index = (self.current_index + 1) % self.posts.len();
 		self.load_current_media(ctx);
+		if self.auto_play {
+			self.slide_show_timer = Some(Instant::now());
+		}
 	}
 
 	fn prev_image(&mut self, ctx: &egui::Context) {
@@ -408,6 +411,9 @@ impl SodglumateApp {
 			self.current_index -= 1;
 		}
 		self.load_current_media(ctx);
+		if self.auto_play {
+			self.slide_show_timer = Some(Instant::now());
+		}
 	}
 
 	fn update_breathing(&mut self, ctx: &egui::Context) {
@@ -572,6 +578,9 @@ impl eframe::App for SodglumateApp {
 						self.cache_current_media();
 						self.current_index = target;
 						self.load_current_media(ctx);
+						if self.auto_play {
+							self.slide_show_timer = Some(Instant::now());
+						}
 					}
 				}
 			} else if shift_pressed {
@@ -714,7 +723,7 @@ impl eframe::App for SodglumateApp {
 						if !user_panned {
 							let elapsed = load_time.elapsed().as_secs_f32();
 							let cycle = (elapsed * 2.0 * std::f32::consts::PI) / pan_cycle;
-							let factor = cycle.sin() * 0.5 + 0.5;
+							let factor = (1.0 - cycle.cos()) * 0.5; // Start at 0.0 (Top-left) instead of 0.5
 
 							let overflow = display_size - available_size;
 							if overflow.x > 0.0 {
@@ -769,11 +778,6 @@ impl eframe::App for SodglumateApp {
 							scroll_area.show(ui, |ui| {
 								handle_scroll_input(ui, &mut user_panned);
 								player.ui(ui, display_size);
-
-								if player.elapsed_ms() >= player.duration_ms {
-									player.seek(0.0);
-									player.start();
-								};
 							});
 						} else {
 							player.ui(ui, available_size);
