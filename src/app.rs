@@ -559,15 +559,18 @@ impl eframe::App for SodglumateApp {
 		}
 
 		// Input handling
+		// Check if we are typing (any widget focused, likely search/page input)
+		let is_typing = ctx.memory(|m| m.focused().is_some());
+
 		let space_pressed = ctx.input(|i| i.key_pressed(egui::Key::Space));
 		let shift_pressed = ctx.input(|i| i.modifiers.shift);
 		let c_pressed = ctx.input(|i| i.key_pressed(egui::Key::C));
 
-		if c_pressed {
+		if !is_typing && c_pressed {
 			self.auto_play = !self.auto_play;
 		}
 
-		if space_pressed {
+		if !is_typing && space_pressed {
 			let ctrl_pressed = ctx.input(|i| i.modifiers.ctrl);
 
 			if ctrl_pressed {
@@ -593,7 +596,7 @@ impl eframe::App for SodglumateApp {
 		// Video Controls (Z/X)
 		if let Some((_, LoadedMedia::Video(ref mut player))) = self.current_media {
 			// Z - Rewind
-			if ctx.input(|i| i.key_pressed(egui::Key::Z)) {
+			if !is_typing && ctx.input(|i| i.key_pressed(egui::Key::Z)) {
 				let current = player.elapsed_ms();
 				let duration = player.duration_ms;
 				if duration > 0 {
@@ -603,7 +606,7 @@ impl eframe::App for SodglumateApp {
 				}
 			}
 			// X - Forward
-			if ctx.input(|i| i.key_pressed(egui::Key::X)) {
+			if !is_typing && ctx.input(|i| i.key_pressed(egui::Key::X)) {
 				let current = player.elapsed_ms();
 				let duration = player.duration_ms;
 				if duration > 0 {
@@ -723,7 +726,7 @@ impl eframe::App for SodglumateApp {
 						if !user_panned {
 							let elapsed = load_time.elapsed().as_secs_f32();
 							let cycle = (elapsed * 2.0 * std::f32::consts::PI) / pan_cycle;
-							let factor = (1.0 - cycle.cos()) * 0.5; // Start at 0.0 (Top-left) instead of 0.5
+							let factor = (1.0 - cycle.cos()) * 0.5;
 
 							let overflow = display_size - available_size;
 							if overflow.x > 0.0 {
