@@ -40,6 +40,7 @@ pub struct BreathingState {
 pub struct SodglumateApp {
 	// State
 	search_query: String,
+	search_page_input: String,
 	posts: Vec<Post>,
 	current_index: usize,
 
@@ -80,6 +81,7 @@ impl SodglumateApp {
 
 		Self {
 			search_query: "~gay ~male solo abs wolf order:score -video".to_owned(),
+			search_page_input: "1".to_owned(),
 			posts: Vec::new(),
 			current_index: 0,
 			client: Arc::new(E621Client::new()),
@@ -108,6 +110,9 @@ impl SodglumateApp {
 	}
 
 	fn perform_search(&mut self, ctx: &egui::Context) {
+		// Parse page input, default to 1
+		let start_page = self.search_page_input.parse::<u32>().unwrap_or(1).max(1);
+
 		self.is_loading = true;
 		self.error_msg = None;
 		self.posts.clear();
@@ -115,7 +120,7 @@ impl SodglumateApp {
 		self.current_media = None;
 		self.media_cache.clear();
 		self.loading_set.clear();
-		self.current_page = 1;
+		self.current_page = start_page;
 		self.fetch_pending = false;
 
 		let client = self.client.clone();
@@ -125,11 +130,11 @@ impl SodglumateApp {
 
 		let limit = 50;
 		tokio::spawn(async move {
-			let result = client.search_posts(&query, limit, 1).await;
+			let result = client.search_posts(&query, limit, start_page).await;
 			let _ = sender
 				.send(AppMessage::PostsFetched {
 					posts: result,
-					page: 1,
+					page: start_page,
 					is_new_search: true,
 				})
 				.await;
@@ -534,7 +539,19 @@ impl eframe::App for SodglumateApp {
 		let shift_pressed = ctx.input(|i| i.modifiers.shift);
 
 		if space_pressed {
-			if shift_pressed {
+			let ctrl_pressed = ctx.input(|i| i.modifiers.ctrl);
+
+			if ctrl_pressed {
+				// Skip 10 posts Logic
+				if !self.posts.is_empty() {
+					let target = (self.current_index + 10).min(self.posts.len().saturating_sub(1));
+					if target != self.current_index {
+						self.cache_current_media();
+						self.current_index = target;
+						self.load_current_media(ctx);
+					}
+				}
+			} else if shift_pressed {
 				self.prev_image(ctx);
 			} else {
 				self.next_image(ctx);
@@ -570,8 +587,16 @@ impl eframe::App for SodglumateApp {
 			ui.horizontal(|ui| {
 				ui.label("Query:");
 				let response = ui.text_edit_singleline(&mut self.search_query);
+
+				ui.label("Page:");
+				let page_response = ui.add(
+					egui::TextEdit::singleline(&mut self.search_page_input).desired_width(40.0),
+				);
+
 				if ui.button("Search").clicked()
 					|| (response.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter)))
+					|| (page_response.lost_focus()
+						&& ctx.input(|i| i.key_pressed(egui::Key::Enter)))
 				{
 					self.perform_search(ctx);
 				}
@@ -742,7 +767,6 @@ impl eframe::App for SodglumateApp {
 			self.slide_show_timer = None;
 		}
 
-		// Breathing Overlay UI
 		// Breathing Overlay UI
 		if self.show_breathing_overlay {
 			// Dynamic Scaling
