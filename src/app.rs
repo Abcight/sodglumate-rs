@@ -1,6 +1,6 @@
 use crate::api::{E621Client, Post};
 use eframe::egui::{self, Shadow, Stroke};
-use egui_video::Player;
+use egui_video::{AudioDevice, Player};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -73,6 +73,9 @@ pub struct SodglumateApp {
 	image_load_time: Instant,
 	user_has_panned: bool,
 	auto_pan_cycle_duration: f32,
+
+	// Audio
+	audio_device: AudioDevice,
 }
 
 impl SodglumateApp {
@@ -106,6 +109,7 @@ impl SodglumateApp {
 			image_load_time: Instant::now(),
 			user_has_panned: false,
 			auto_pan_cycle_duration: 10.0,
+			audio_device: AudioDevice::new().expect("Failed to create audio device"),
 		}
 	}
 
@@ -183,6 +187,15 @@ impl SodglumateApp {
 		if is_video {
 			match Player::new(ctx, &url) {
 				Ok(player) => {
+					// Enable Audio
+					let player = match player.with_audio(&mut self.audio_device) {
+						Ok(p) => p,
+						Err(e) => {
+							log::error!("Failed to enable audio for video: {} ({})", url, e);
+							self.loading_set.remove(&url);
+							return;
+						}
+					};
 					// We don't start it yet.
 					self.media_cache
 						.insert(url.clone(), LoadedMedia::Video(player));
@@ -419,7 +432,7 @@ impl SodglumateApp {
 				}
 				BreathingPhase::Release => {
 					// 20% -> Inhale
-					// 80% -> Idle (20-40s)
+					// 80% -> Idle (17-28s)
 					if rng.random_bool(0.2) {
 						let duration_secs = rng.random_range(5..=12);
 						self.breathing_state = BreathingState {
@@ -428,7 +441,7 @@ impl SodglumateApp {
 							duration: Duration::from_secs(duration_secs),
 						};
 					} else {
-						let duration_secs = rng.random_range(20..=40);
+						let duration_secs = rng.random_range(17..=28);
 						self.breathing_state = BreathingState {
 							phase: BreathingPhase::Idle,
 							start_time: Instant::now(),
