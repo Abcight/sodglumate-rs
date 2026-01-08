@@ -94,7 +94,7 @@ impl SodglumateApp {
 			fetch_pending: false,
 			slide_show_timer: None,
 			auto_play: false,
-			auto_play_delay: std::time::Duration::from_secs(15),
+			auto_play_delay: std::time::Duration::from_secs(16),
 			show_breathing_overlay: false,
 			breathing_state: BreathingState {
 				phase: BreathingPhase::Prepare,
@@ -103,7 +103,7 @@ impl SodglumateApp {
 			},
 			image_load_time: Instant::now(),
 			user_has_panned: false,
-			auto_pan_cycle_duration: 30.0,
+			auto_pan_cycle_duration: 10.0,
 		}
 	}
 
@@ -743,16 +743,26 @@ impl eframe::App for SodglumateApp {
 		}
 
 		// Breathing Overlay UI
+		// Breathing Overlay UI
 		if self.show_breathing_overlay {
+			// Dynamic Scaling
+			let screen_height = ctx.screen_rect().height();
+			let font_size = (screen_height * 0.05).max(16.0); // 5% of screen height
+			let min_width = (screen_height * 0.3).max(200.0); // 30% of height
+			let margin_offset = -(screen_height * 0.03).max(10.0); // 3% margin from edge
+
 			egui::Area::new(egui::Id::new("breathing_overlay"))
-				.anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-10.0, -10.0))
+				.anchor(
+					egui::Align2::RIGHT_BOTTOM,
+					egui::vec2(margin_offset, margin_offset),
+				)
 				.show(ctx, |ui| {
 					// Background for readability
 					egui::Frame::popup(ui.style())
 						.fill(egui::Color32::TRANSPARENT)
 						.stroke(Stroke::new(0.0, egui::Color32::TRANSPARENT))
 						.shadow(Shadow::NONE)
-						.inner_margin(egui::Margin::same(24.0))
+						.inner_margin(egui::Margin::same(font_size * 0.5))
 						.show(ui, |ui| {
 							ui.with_layout(
 								egui::Layout::right_to_left(egui::Align::Center),
@@ -778,7 +788,7 @@ impl eframe::App for SodglumateApp {
 									};
 
 									if !text.is_empty() {
-										let font_id = egui::FontId::monospace(36.0);
+										let font_id = egui::FontId::monospace(font_size);
 
 										let shadow_galley = ui.painter().layout_no_wrap(
 											text.clone(),
@@ -789,12 +799,14 @@ impl eframe::App for SodglumateApp {
 										let galley =
 											ui.painter().layout_no_wrap(text, font_id, color);
 
-										let (rect, _) = ui.allocate_exact_size(
-											galley.size(),
-											egui::Sense::hover(),
-										);
+										// Enforce min width
+										let width = galley.size().x.max(min_width);
+										let size = egui::vec2(width, galley.size().y);
 
-										let shadow_size = 2.0;
+										let (rect, _) =
+											ui.allocate_exact_size(size, egui::Sense::hover());
+
+										let shadow_size = (font_size * 0.05).max(1.0);
 										let offsets = [
 											egui::vec2(-shadow_size, -shadow_size),
 											egui::vec2(0.0, -shadow_size),
@@ -806,15 +818,19 @@ impl eframe::App for SodglumateApp {
 											egui::vec2(shadow_size, shadow_size),
 										];
 
+										// Right align drawing position
+										let draw_pos =
+											egui::pos2(rect.max.x - galley.size().x, rect.min.y);
+
 										for offset in offsets {
 											ui.painter().galley(
-												rect.min + offset,
+												draw_pos + offset,
 												shadow_galley.clone(),
 												egui::Color32::BLACK,
 											);
 										}
 
-										ui.painter().galley(rect.min, galley, color);
+										ui.painter().galley(draw_pos, galley, color);
 									}
 								},
 							);
