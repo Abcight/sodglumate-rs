@@ -67,6 +67,7 @@ pub struct SodglumateApp {
 
 	// Breathing Overlay
 	show_breathing_overlay: bool,
+	breathing_idle_multiplier: f32,
 	breathing_state: BreathingState,
 
 	// Auto-Panning
@@ -101,6 +102,7 @@ impl SodglumateApp {
 			auto_play: false,
 			auto_play_delay: std::time::Duration::from_secs(16),
 			show_breathing_overlay: false,
+			breathing_idle_multiplier: 1.0,
 			breathing_state: BreathingState {
 				phase: BreathingPhase::Prepare,
 				start_time: Instant::now(),
@@ -196,6 +198,7 @@ impl SodglumateApp {
 							return;
 						}
 					};
+
 					// We don't start it yet.
 					self.media_cache
 						.insert(url.clone(), LoadedMedia::Video(player));
@@ -442,6 +445,8 @@ impl SodglumateApp {
 						};
 					} else {
 						let duration_secs = rng.random_range(17..=28);
+						let duration_secs =
+							(duration_secs as f32 * self.breathing_idle_multiplier) as u64;
 						self.breathing_state = BreathingState {
 							phase: BreathingPhase::Idle,
 							start_time: Instant::now(),
@@ -635,6 +640,13 @@ impl eframe::App for SodglumateApp {
 				ui.separator();
 				ui.checkbox(&mut self.show_breathing_overlay, "Breathing Overlay");
 
+				if self.show_breathing_overlay {
+					ui.add(
+						egui::Slider::new(&mut self.breathing_idle_multiplier, 0.0..=2.0)
+							.text("Idle Multiplier"),
+					);
+				}
+
 				ui.separator();
 				let mut speed = self.auto_pan_cycle_duration;
 				if ui
@@ -757,6 +769,11 @@ impl eframe::App for SodglumateApp {
 							scroll_area.show(ui, |ui| {
 								handle_scroll_input(ui, &mut user_panned);
 								player.ui(ui, display_size);
+
+								if player.elapsed_ms() >= player.duration_ms {
+									player.seek(0.0);
+									player.start();
+								};
 							});
 						} else {
 							player.ui(ui, available_size);
