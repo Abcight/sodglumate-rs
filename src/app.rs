@@ -920,7 +920,9 @@ impl eframe::App for SodglumateApp {
 		// Main Area
 		egui::CentralPanel::default().show(ctx, |ui| {
 			if self.is_loading {
-				ui.spinner();
+				ui.centered_and_justified(|ui| {
+					ui.spinner();
+				});
 			} else if let Some(err) = &self.error_msg {
 				ui.label(egui::RichText::new(err).color(egui::Color32::RED));
 			} else if let Some((_, media)) = &mut self.current_media {
