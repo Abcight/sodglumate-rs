@@ -1,5 +1,5 @@
 use crate::api::{E621Client, Post};
-use eframe::egui::{self, Shadow, Stroke};
+use eframe::egui;
 use egui_video::{AudioDevice, Player};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
@@ -609,10 +609,117 @@ impl SodglumateApp {
 						ui.painter()
 							.galley(draw_pos + offset, shadow_galley, shadow_color);
 					}
-
 					ui.painter().galley(draw_pos, galley, text_color);
 				});
 		}
+	}
+
+	fn draw_outlined_text(
+		ui: &mut egui::Ui,
+		text: &str,
+		font_id: egui::FontId,
+		color: egui::Color32,
+		stroke_width: f32,
+	) {
+		let galley = ui
+			.painter()
+			.layout_no_wrap(text.to_string(), font_id.clone(), color);
+		let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+
+		let shadow_color = egui::Color32::BLACK;
+		let offsets = [
+			egui::vec2(-stroke_width, -stroke_width),
+			egui::vec2(0.0, -stroke_width),
+			egui::vec2(stroke_width, -stroke_width),
+			egui::vec2(-stroke_width, 0.0),
+			egui::vec2(stroke_width, 0.0),
+			egui::vec2(-stroke_width, stroke_width),
+			egui::vec2(0.0, stroke_width),
+			egui::vec2(stroke_width, stroke_width),
+		];
+
+		for offset in offsets {
+			let shadow_galley =
+				ui.painter()
+					.layout_no_wrap(text.to_string(), font_id.clone(), shadow_color);
+			ui.painter()
+				.galley(rect.min + offset, shadow_galley, shadow_color);
+		}
+
+		ui.painter().galley(rect.min, galley, color);
+	}
+
+	fn draw_image_info_overlay(&self, ctx: &egui::Context) {
+		// Only show if we have a current post
+		if self.posts.is_empty() {
+			return;
+		}
+
+		let post = match self.posts.get(self.current_index) {
+			Some(p) => p,
+			None => return,
+		};
+
+		// Dynamic Scaling for readability, but small
+		let screen_height = ctx.screen_rect().height();
+		let font_size = (screen_height * 0.02).max(12.0); // 2% of screen height
+		let margin = (screen_height * 0.03).max(10.0); // Match breathing overlay margin
+		let stroke_width = (font_size * 0.05).max(1.0);
+
+		egui::Area::new(egui::Id::new("image_info_overlay"))
+			.anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(margin, -margin))
+			.interactable(false)
+			.order(egui::Order::Foreground)
+			.show(ctx, |ui| {
+				// No background, just text
+				let text_color = egui::Color32::WHITE;
+				let font_id = egui::FontId::proportional(font_size);
+
+				let add_text_line = |ui: &mut egui::Ui, label: &str, content: &str| {
+					if !content.is_empty() {
+						ui.horizontal(|ui| {
+							Self::draw_outlined_text(
+								ui,
+								label,
+								font_id.clone(),
+								egui::Color32::LIGHT_GRAY,
+								stroke_width,
+							);
+							Self::draw_outlined_text(
+								ui,
+								" ",
+								font_id.clone(),
+								egui::Color32::TRANSPARENT,
+								0.0,
+							); // spacer
+							Self::draw_outlined_text(
+								ui,
+								content,
+								font_id.clone(),
+								text_color,
+								stroke_width,
+							);
+						});
+					}
+				};
+
+				ui.vertical(|ui| {
+					// Post ID
+					add_text_line(ui, "Post ID:", &post.id.to_string());
+
+					// Artist
+					let artist_str = post.tags.artist.join(", ");
+					if !artist_str.is_empty() && artist_str != "invalid_artist" {
+						add_text_line(ui, "Artist:", &artist_str);
+					}
+
+					// Copyright
+					let copyright_str = post.tags.copyright.join(", ");
+					if !copyright_str.is_empty() && copyright_str != "invalid_copyright" {
+						add_text_line(ui, "Copyright:", &copyright_str);
+					}
+				});
+			});
 	}
 }
 
@@ -621,6 +728,7 @@ impl eframe::App for SodglumateApp {
 		// Update Breathing State (Always running)
 		self.update_breathing(ctx);
 		self.draw_breathing_pulse(ctx);
+		self.draw_image_info_overlay(ctx);
 
 		while let Ok(msg) = self.receiver.try_recv() {
 			match msg {
@@ -953,7 +1061,6 @@ impl eframe::App for SodglumateApp {
 			// Dynamic Scaling
 			let screen_height = ctx.screen_rect().height();
 			let font_size = (screen_height * 0.05).max(16.0); // 5% of screen height
-			let min_width = (screen_height * 0.3).max(200.0); // 30% of height
 			let margin_offset = -(screen_height * 0.03).max(10.0); // 3% margin from edge
 
 			egui::Area::new(egui::Id::new("breathing_overlay"))
@@ -961,88 +1068,32 @@ impl eframe::App for SodglumateApp {
 					egui::Align2::RIGHT_BOTTOM,
 					egui::vec2(margin_offset, margin_offset),
 				)
+				.interactable(false)
+				.order(egui::Order::Foreground)
 				.show(ctx, |ui| {
-					// Background for readability
-					egui::Frame::popup(ui.style())
-						.fill(egui::Color32::TRANSPARENT)
-						.stroke(Stroke::new(0.0, egui::Color32::TRANSPARENT))
-						.shadow(Shadow::NONE)
-						.inner_margin(egui::Margin::same(font_size * 0.5))
-						.show(ui, |ui| {
-							ui.with_layout(
-								egui::Layout::right_to_left(egui::Align::Center),
-								|ui| {
-									let state = &self.breathing_state;
-									let elapsed = state.start_time.elapsed();
-									let remaining =
-										state.duration.saturating_sub(elapsed).as_secs() + 1;
+					ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+						let state = &self.breathing_state;
+						let elapsed = state.start_time.elapsed();
+						let remaining = state.duration.saturating_sub(elapsed).as_secs() + 1;
 
-									let (text, color) = match state.phase {
-										BreathingPhase::Prepare => {
-											(format!("PREPARE {}", remaining), egui::Color32::RED)
-										}
-										BreathingPhase::Inhale => {
-											("INHALE".to_string(), egui::Color32::YELLOW)
-										}
-										BreathingPhase::Hold => {
-											("HOLD".to_string(), egui::Color32::YELLOW)
-										}
-										BreathingPhase::Release => {
-											("RELEASE".to_string(), egui::Color32::GREEN)
-										}
-										BreathingPhase::Idle => {
-											("".to_string(), egui::Color32::TRANSPARENT)
-										}
-									};
+						let (text, color) = match state.phase {
+							BreathingPhase::Prepare => {
+								(format!("PREPARE {}", remaining), egui::Color32::RED)
+							}
+							BreathingPhase::Inhale => ("INHALE".to_string(), egui::Color32::YELLOW),
+							BreathingPhase::Hold => ("HOLD".to_string(), egui::Color32::YELLOW),
+							BreathingPhase::Release => {
+								("RELEASE".to_string(), egui::Color32::GREEN)
+							}
+							BreathingPhase::Idle => ("".to_string(), egui::Color32::TRANSPARENT),
+						};
 
-									if !text.is_empty() {
-										let font_id = egui::FontId::monospace(font_size);
-
-										let shadow_galley = ui.painter().layout_no_wrap(
-											text.clone(),
-											font_id.clone(),
-											egui::Color32::BLACK,
-										);
-
-										let galley =
-											ui.painter().layout_no_wrap(text, font_id, color);
-
-										// Enforce min width
-										let width = galley.size().x.max(min_width);
-										let size = egui::vec2(width, galley.size().y);
-
-										let (rect, _) =
-											ui.allocate_exact_size(size, egui::Sense::hover());
-
-										let shadow_size = (font_size * 0.05).max(1.0);
-										let offsets = [
-											egui::vec2(-shadow_size, -shadow_size),
-											egui::vec2(0.0, -shadow_size),
-											egui::vec2(shadow_size, -shadow_size),
-											egui::vec2(-shadow_size, 0.0),
-											egui::vec2(shadow_size, 0.0),
-											egui::vec2(-shadow_size, shadow_size),
-											egui::vec2(0.0, shadow_size),
-											egui::vec2(shadow_size, shadow_size),
-										];
-
-										// Right align drawing position
-										let draw_pos =
-											egui::pos2(rect.max.x - galley.size().x, rect.min.y);
-
-										for offset in offsets {
-											ui.painter().galley(
-												draw_pos + offset,
-												shadow_galley.clone(),
-												egui::Color32::BLACK,
-											);
-										}
-
-										ui.painter().galley(draw_pos, galley, color);
-									}
-								},
-							);
-						});
+						if !text.is_empty() {
+							let font_id = egui::FontId::monospace(font_size);
+							let stroke_width = (font_size * 0.05).max(1.0);
+							Self::draw_outlined_text(ui, &text, font_id, color, stroke_width);
+						}
+					});
 				});
 		}
 	}
