@@ -26,6 +26,7 @@ pub enum LoadedMedia {
 pub enum BreathingPhase {
 	Prepare,
 	Inhale,
+	Hold,
 	Release,
 	Idle,
 }
@@ -476,8 +477,8 @@ impl SodglumateApp {
 			let mut rng = rand::rng();
 			match self.breathing_state.phase {
 				BreathingPhase::Prepare => {
-					// -> Inhale (5-12s)
-					let duration_secs = rng.random_range(5..=12);
+					// -> Inhale (5-10s)
+					let duration_secs = rng.random_range(5..=10);
 					self.breathing_state = BreathingState {
 						phase: BreathingPhase::Inhale,
 						start_time: Instant::now(),
@@ -485,6 +486,14 @@ impl SodglumateApp {
 					};
 				}
 				BreathingPhase::Inhale => {
+					// -> Hold (same as Inhale)
+					self.breathing_state = BreathingState {
+						phase: BreathingPhase::Hold,
+						start_time: Instant::now(),
+						duration: self.breathing_state.duration,
+					};
+				}
+				BreathingPhase::Hold => {
 					// -> Release (4s)
 					self.breathing_state = BreathingState {
 						phase: BreathingPhase::Release,
@@ -529,12 +538,89 @@ impl SodglumateApp {
 			ctx.request_repaint();
 		}
 	}
+
+	fn draw_breathing_pulse(&self, ctx: &egui::Context) {
+		if !self.show_breathing_overlay {
+			return;
+		}
+
+		let elapsed = self.breathing_state.start_time.elapsed().as_secs_f32();
+		let pulse_duration = 1.5; // Total pulse time
+
+		if elapsed < pulse_duration {
+			let t = elapsed / pulse_duration;
+			// Effect: Smooth ease-in ease-out curve
+			let opacity = (t * std::f32::consts::PI).sin();
+
+			// Scale: Continuous smooth expansion
+			let scale = 0.3 + 1.0 * (1.0 - (1.0 - t).powi(4));
+
+			let (text, color) = match self.breathing_state.phase {
+				BreathingPhase::Prepare => ("PREPARE", egui::Color32::RED),
+				BreathingPhase::Inhale => ("INHALE", egui::Color32::YELLOW),
+				BreathingPhase::Hold => ("HOLD", egui::Color32::YELLOW),
+				BreathingPhase::Release => ("RELEASE", egui::Color32::GREEN),
+				BreathingPhase::Idle => return,
+			};
+
+			let screen_rect = ctx.screen_rect();
+			let center = screen_rect.center();
+			let font_size = (screen_rect.height() * 0.15) * scale;
+
+			egui::Area::new(egui::Id::new("breathing_pulse"))
+				.fixed_pos(center)
+				.anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+				.interactable(false)
+				.order(egui::Order::Foreground)
+				.show(ctx, |ui| {
+					let font_id = egui::FontId::proportional(font_size);
+
+					// Outline
+					let shadow_color = egui::Color32::BLACK.gamma_multiply(opacity);
+					let text_color = color.gamma_multiply(opacity);
+
+					// Text layout
+					let galley =
+						ui.painter()
+							.layout_no_wrap(text.to_string(), font_id.clone(), text_color);
+
+					// Draw outline
+					let stroke_width = (font_size * 0.02).max(1.0);
+					let offsets = [
+						egui::vec2(-stroke_width, -stroke_width),
+						egui::vec2(0.0, -stroke_width),
+						egui::vec2(stroke_width, -stroke_width),
+						egui::vec2(-stroke_width, 0.0),
+						egui::vec2(stroke_width, 0.0),
+						egui::vec2(-stroke_width, stroke_width),
+						egui::vec2(0.0, stroke_width),
+						egui::vec2(stroke_width, stroke_width),
+					];
+
+					let text_size = galley.size();
+					let draw_pos = center - (text_size / 2.0);
+
+					for offset in offsets {
+						let shadow_galley = ui.painter().layout_no_wrap(
+							text.to_string(),
+							font_id.clone(),
+							shadow_color,
+						);
+						ui.painter()
+							.galley(draw_pos + offset, shadow_galley, shadow_color);
+					}
+
+					ui.painter().galley(draw_pos, galley, text_color);
+				});
+		}
+	}
 }
 
 impl eframe::App for SodglumateApp {
 	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 		// Update Breathing State (Always running)
 		self.update_breathing(ctx);
+		self.draw_breathing_pulse(ctx);
 
 		while let Ok(msg) = self.receiver.try_recv() {
 			match msg {
@@ -897,6 +983,9 @@ impl eframe::App for SodglumateApp {
 										}
 										BreathingPhase::Inhale => {
 											("INHALE".to_string(), egui::Color32::YELLOW)
+										}
+										BreathingPhase::Hold => {
+											("HOLD".to_string(), egui::Color32::YELLOW)
 										}
 										BreathingPhase::Release => {
 											("RELEASE".to_string(), egui::Color32::GREEN)
