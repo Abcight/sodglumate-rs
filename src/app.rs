@@ -309,6 +309,56 @@ impl SodglumateApp {
 		}
 	}
 
+	fn prune_media_cache(&mut self) {
+		if self.posts.is_empty() {
+			return;
+		}
+
+		let mut keep_urls = HashSet::new();
+		let len = self.posts.len();
+
+		// Keep current
+		if let Some(post) = self.posts.get(self.current_index) {
+			if let Some(url) = &post.file.url {
+				keep_urls.insert(url.clone());
+			}
+		}
+
+		// Keep next 5
+		for i in 1..=5 {
+			let idx = (self.current_index + i) % len;
+			if let Some(post) = self.posts.get(idx) {
+				if let Some(url) = &post.file.url {
+					keep_urls.insert(url.clone());
+				}
+			}
+		}
+
+		// Keep prev 5
+		for i in 1..=5 {
+			// Handle wrap around for negative direction in a circular buffer
+			let idx = (self.current_index + len - i) % len;
+			if let Some(post) = self.posts.get(idx) {
+				if let Some(url) = &post.file.url {
+					keep_urls.insert(url.clone());
+				}
+			}
+		}
+
+		// Prune
+		self.media_cache.retain(|url, media| {
+			let keep = keep_urls.contains(url);
+			if !keep {
+				if let LoadedMedia::Video(player) = media {
+					// Explicitly stop to ensure resources are freed immediately if possible
+					player.stop();
+				}
+				log::info!("Pruning media from cache: {}", url);
+			}
+			keep
+		});
+	}
+
 	fn load_current_media(&mut self, ctx: &egui::Context) {
 		let target = if let Some(post) = self.posts.get(self.current_index) {
 			if let Some(url) = &post.file.url {
@@ -364,6 +414,9 @@ impl SodglumateApp {
 
 			// Prefetch Next 2
 			self.prefetch_next(ctx, 2);
+
+			// Prune Cache
+			self.prune_media_cache();
 
 			// Pagination Check
 			if self.posts.len() >= 5 {
