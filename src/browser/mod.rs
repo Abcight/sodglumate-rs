@@ -130,8 +130,8 @@ impl ContentBrowser {
 				events.push(Event::Gateway(GatewayEvent::FetchNextPage));
 			}
 
-			// Emit prefetch hints for next 2 posts
-			let prefetch_urls: Vec<(Option<String>, Option<String>, bool)> = (1..=2)
+			// Emit prefetch hints for next 30 posts
+			let prefetch_urls: Vec<(Option<String>, Option<String>, bool)> = (1..=30)
 				.filter_map(|i| {
 					let idx = (self.current_index + i) % self.posts.len();
 					self.posts.get(idx).map(|p| {

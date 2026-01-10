@@ -177,34 +177,70 @@ impl MediaCache {
 			}
 		}
 
-		// Prefetch samples (breadth-first)
-		while self.loading_set.len() < 5 {
-			if let Some(item) = self.pending_samples.pop_front() {
-				let cache_key = self.get_cache_key(&item);
-				if self.cache.contains_key(&cache_key) {
-					continue; // Already cached
-				}
-				if item.is_video {
-					self.load_video(&item, responses);
-				} else if let Some(ref sample_url) = item.sample_url {
-					if !self.loading_set.contains(sample_url) {
-						self.start_image_load(sample_url.clone(), true, cache_key);
-						// Queue for full version after sample
-						self.pending_full.push_back(item);
-					}
-				} else if let Some(ref full_url) = item.full_url {
-					if !self.loading_set.contains(full_url) {
-						self.start_image_load(full_url.clone(), false, cache_key);
-					}
-				}
-			} else {
-				break;
-			}
-		}
+		// Prioritize samples, then upgrade to full in batches
+		const BATCH_SIZE: usize = 3;
+		let mut loaded_this_cycle = 0;
 
-		// Prefetch full versions (depth-first, only after all samples done)
-		if self.pending_samples.is_empty() {
-			while self.loading_set.len() < 5 {
+		while self.loading_set.len() < 5 {
+			// Load samples until pending_samples has few items
+			if !self.pending_samples.is_empty() {
+				if let Some(item) = self.pending_samples.pop_front() {
+					let cache_key = self.get_cache_key(&item);
+					if self.cache.contains_key(&cache_key) {
+						continue; // Already cached
+					}
+					if item.is_video {
+						self.load_video(&item, responses);
+						loaded_this_cycle += 1;
+					} else if let Some(ref sample_url) = item.sample_url {
+						if !self.loading_set.contains(sample_url) {
+							self.start_image_load(sample_url.clone(), true, cache_key);
+							self.pending_full.push_back(item);
+							loaded_this_cycle += 1;
+						}
+					} else if let Some(ref full_url) = item.full_url {
+						if !self.loading_set.contains(full_url) {
+							self.start_image_load(full_url.clone(), false, cache_key);
+							loaded_this_cycle += 1;
+						}
+					}
+					if loaded_this_cycle >= BATCH_SIZE && !self.pending_full.is_empty() {
+						loaded_this_cycle = 0;
+						// Load up to BATCH_SIZE full versions
+						for _ in 0..BATCH_SIZE {
+							if self.loading_set.len() >= 5 {
+								break;
+							}
+							if let Some(full_item) = self.pending_full.pop_front() {
+								let full_cache_key = self.get_cache_key(&full_item);
+								let has_full = self
+									.cache
+									.get(&full_cache_key)
+									.map(|(_, state)| matches!(state, CacheState::Full))
+									.unwrap_or(false);
+								if has_full {
+									continue;
+								}
+								if let Some(ref full_url) = full_item.full_url {
+									if !self.loading_set.contains(full_url) {
+										self.start_image_load(
+											full_url.clone(),
+											false,
+											full_cache_key,
+										);
+									}
+								}
+							} else {
+								break;
+							}
+						}
+					}
+					continue;
+				}
+			}
+
+			// When samples exhausted, drain remaining full versions
+			if self.pending_samples.is_empty() {
 				if let Some(item) = self.pending_full.pop_front() {
 					let cache_key = self.get_cache_key(&item);
 					let has_full = self
@@ -212,19 +248,19 @@ impl MediaCache {
 						.get(&cache_key)
 						.map(|(_, state)| matches!(state, CacheState::Full))
 						.unwrap_or(false);
-
 					if has_full {
-						continue; // Already have full
+						continue;
 					}
 					if let Some(ref full_url) = item.full_url {
 						if !self.loading_set.contains(full_url) {
 							self.start_image_load(full_url.clone(), false, cache_key);
 						}
 					}
-				} else {
-					break;
+					continue;
 				}
 			}
+
+			break;
 		}
 	}
 
@@ -365,7 +401,7 @@ impl MediaCache {
 	}
 
 	fn prune_cache(&mut self) {
-		const MAX_CACHE_SIZE: usize = 20;
+		const MAX_CACHE_SIZE: usize = 100;
 		if self.cache.len() > MAX_CACHE_SIZE {
 			let current_key = self.current_item.as_ref().map(|i| self.get_cache_key(i));
 			let to_remove: Vec<String> = self
