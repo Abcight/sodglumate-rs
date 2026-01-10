@@ -26,11 +26,7 @@ impl ContentBrowser {
 				is_new,
 			}) => {
 				if *is_new {
-					log::info!(
-						"New search results: page={}, posts={}",
-						page,
-						posts.len()
-					);
+					log::info!("New search results: page={}, posts={}", page, posts.len());
 					self.posts = posts.clone();
 					self.current_index = 0;
 					self.current_page = *page;
@@ -100,17 +96,26 @@ impl ContentBrowser {
 		let mut events = Vec::new();
 
 		if let Some(post) = post {
-			// Request media load if URL available
-			if let Some(url) = &post.file.url {
-				let ext = post.file.ext.to_lowercase();
-				let is_video = matches!(ext.as_str(), "mp4" | "webm" | "gif");
+			// Request media load with sample and full URLs
+			let ext = post.file.ext.to_lowercase();
+			let is_video = matches!(ext.as_str(), "mp4" | "webm" | "gif");
+			let sample_url = if post.sample.has {
+				post.sample.url.clone()
+			} else {
+				None
+			};
+			let full_url = post.file.url.clone();
+
+			if sample_url.is_some() || full_url.is_some() {
 				log::debug!(
-					"Requesting media load: {} (video={})",
-					url,
+					"Requesting media load: sample={:?}, full={:?} (video={})",
+					sample_url,
+					full_url,
 					is_video
 				);
 				events.push(Event::Media(MediaEvent::LoadRequest {
-					url: url.clone(),
+					sample_url,
+					full_url,
 					is_video,
 				}));
 			}
@@ -126,24 +131,24 @@ impl ContentBrowser {
 			}
 
 			// Emit prefetch hints for next 2 posts
-			let prefetch_urls: Vec<(String, bool)> = (1..=2)
+			let prefetch_urls: Vec<(Option<String>, Option<String>, bool)> = (1..=2)
 				.filter_map(|i| {
 					let idx = (self.current_index + i) % self.posts.len();
-					self.posts.get(idx).and_then(|p| {
-						p.file.url.as_ref().map(|url| {
-							let ext = p.file.ext.to_lowercase();
-							let is_video = matches!(ext.as_str(), "mp4" | "webm" | "gif");
-							(url.clone(), is_video)
-						})
+					self.posts.get(idx).map(|p| {
+						let ext = p.file.ext.to_lowercase();
+						let is_video = matches!(ext.as_str(), "mp4" | "webm" | "gif");
+						let sample_url = if p.sample.has {
+							p.sample.url.clone()
+						} else {
+							None
+						};
+						(sample_url, p.file.url.clone(), is_video)
 					})
 				})
 				.collect();
 
 			if !prefetch_urls.is_empty() {
-				log::debug!(
-					"Requesting prefetch for {} URLs",
-					prefetch_urls.len()
-				);
+				log::debug!("Requesting prefetch for {} URLs", prefetch_urls.len());
 				events.push(Event::Media(MediaEvent::Prefetch {
 					urls: prefetch_urls,
 				}));

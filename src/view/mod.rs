@@ -115,8 +115,8 @@ impl ViewManager {
 
 		// Video controls
 		let current_url = media.current_url().map(|s| s.to_string());
-		if let Some(url) = current_url {
-			if let Some(LoadedMedia::Video(player)) = media.get_media(&url) {
+		if let Some(_url) = current_url {
+			if let Some(LoadedMedia::Video(player)) = media.get_current_media() {
 				if ctx.input(|i| i.key_pressed(egui::Key::Z)) {
 					let current = player.elapsed_ms();
 					let duration = player.duration_ms;
@@ -236,8 +236,8 @@ impl ViewManager {
 				});
 			} else if let Some(err) = &self.error_msg {
 				ui.label(egui::RichText::new(err).color(egui::Color32::RED));
-			} else if let Some(url) = media.current_url() {
-				self.render_media(ui, ctx, media, url.to_string());
+			} else if let Some(_url) = media.current_url() {
+				self.render_media(ui, ctx, media);
 			} else {
 				ui.centered_and_justified(|ui| {
 					ui.label("Enter a query and search to start.");
@@ -246,13 +246,7 @@ impl ViewManager {
 		});
 	}
 
-	fn render_media(
-		&mut self,
-		ui: &mut egui::Ui,
-		ctx: &egui::Context,
-		media: &mut MediaCache,
-		url: String,
-	) {
+	fn render_media(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, media: &mut MediaCache) {
 		let pan_cycle = self.auto_pan_cycle_duration;
 		let load_time = self.image_load_time;
 		let mut user_panned = self.user_has_panned;
@@ -283,9 +277,9 @@ impl ViewManager {
 			}
 		};
 
-		if let Some(loaded_media) = media.get_media(&url) {
+		if let Some(loaded_media) = media.get_current_media() {
 			match loaded_media {
-				LoadedMedia::Image(texture) => {
+				LoadedMedia::Image { texture } => {
 					let available_size = ui.available_size();
 					let img_size = texture.size_vec2();
 

@@ -2,7 +2,7 @@ use eframe::egui;
 
 /// Loaded media content
 pub enum LoadedMedia {
-	Image(egui::TextureHandle),
+	Image { texture: egui::TextureHandle },
 	Video(egui_video::Player),
 }
 

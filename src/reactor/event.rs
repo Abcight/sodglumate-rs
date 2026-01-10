@@ -77,9 +77,17 @@ pub enum BrowserEvent {
 
 #[derive(Clone, Debug)]
 pub enum MediaEvent {
-	LoadRequest { url: String, is_video: bool },
-	LoadError { error: String },
-	Prefetch { urls: Vec<(String, bool)> },
+	LoadRequest {
+		sample_url: Option<String>,
+		full_url: Option<String>,
+		is_video: bool,
+	},
+	LoadError {
+		error: String,
+	},
+	Prefetch {
+		urls: Vec<(Option<String>, Option<String>, bool)>, // (sample_url, full_url, is_video)
+	},
 }
 
 #[derive(Clone, Debug)]
