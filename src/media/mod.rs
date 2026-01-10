@@ -2,7 +2,7 @@ use crate::reactor::{ComponentResponse, Event, MediaEvent, ViewEvent};
 use crate::types::LoadedMedia;
 use eframe::egui;
 use egui_video::{AudioDevice, Player};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use tokio::sync::mpsc;
 
 /// Message from async image loading tasks
@@ -16,6 +16,7 @@ pub enum MediaMessage {
 pub struct MediaCache {
 	cache: HashMap<String, LoadedMedia>,
 	loading_set: HashSet<String>,
+	pending_prefetch: VecDeque<(String, bool)>,
 	current_url: Option<String>,
 	sender: mpsc::Sender<MediaMessage>,
 	receiver: mpsc::Receiver<MediaMessage>,
@@ -29,6 +30,7 @@ impl MediaCache {
 		Self {
 			cache: HashMap::new(),
 			loading_set: HashSet::new(),
+			pending_prefetch: VecDeque::new(),
 			current_url: None,
 			sender,
 			receiver,
@@ -65,6 +67,15 @@ impl MediaCache {
 			}
 		}
 
+		// Continuously try to load pending prefetch items
+		while self.loading_set.len() < 2 {
+			if let Some((url, is_video)) = self.pending_prefetch.pop_front() {
+				self.load_media(url, is_video, &mut responses);
+			} else {
+				break;
+			}
+		}
+
 		self.prune_cache();
 
 		if responses.is_empty() {
@@ -84,7 +95,9 @@ impl MediaCache {
 			}
 			Event::Media(MediaEvent::Prefetch { urls }) => {
 				for (url, is_video) in urls {
-					self.load_media(url.clone(), *is_video, &mut responses);
+					if !self.cache.contains_key(url) && !self.loading_set.contains(url) {
+						self.pending_prefetch.push_back((url.clone(), *is_video));
+					}
 				}
 			}
 			_ => {}
@@ -113,6 +126,16 @@ impl MediaCache {
 
 		// Rate limit to max 2 concurrent
 		if self.loading_set.len() >= 2 {
+			// Check if already queued
+			if self.pending_prefetch.iter().any(|(u, _)| u == &url) {
+				return;
+			}
+			// Prioritize current_url at front
+			if Some(&url) == self.current_url.as_ref() {
+				self.pending_prefetch.push_front((url, is_video));
+			} else {
+				self.pending_prefetch.push_back((url, is_video));
+			}
 			return;
 		}
 
