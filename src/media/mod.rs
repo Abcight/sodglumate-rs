@@ -5,7 +5,6 @@ use egui_video::{AudioDevice, Player};
 use std::collections::{HashMap, HashSet, VecDeque};
 use tokio::sync::mpsc;
 
-/// Message from async image loading tasks
 pub enum MediaMessage {
 	ImageLoaded {
 		url: String,
@@ -26,6 +25,7 @@ pub struct MediaCache {
 
 impl MediaCache {
 	pub fn new(ctx: &egui::Context) -> Self {
+		log::info!("[Media] Initializing");
 		let (sender, receiver) = mpsc::channel(100);
 		Self {
 			cache: HashMap::new(),
@@ -39,7 +39,6 @@ impl MediaCache {
 		}
 	}
 
-	/// Poll async channel for completed image loads (called every frame)
 	pub fn poll(&mut self) -> ComponentResponse {
 		let mut responses = Vec::new();
 		while let Ok(msg) = self.receiver.try_recv() {
@@ -48,6 +47,7 @@ impl MediaCache {
 					self.loading_set.remove(&url);
 					match result {
 						Ok(color_image) => {
+							log::info!("[Media] Image loaded: {}", url);
 							let texture = self.egui_ctx.load_texture(
 								&url,
 								color_image,
@@ -60,6 +60,7 @@ impl MediaCache {
 							}
 						}
 						Err(error) => {
+							log::error!("[Media] Image load failed: {} - {}", url, error);
 							responses.push(Event::Media(MediaEvent::LoadError { error }));
 						}
 					}
@@ -90,10 +91,12 @@ impl MediaCache {
 
 		match event {
 			Event::Media(MediaEvent::LoadRequest { url, is_video }) => {
+				log::info!("[Media] LoadRequest: {} (video={})", url, is_video);
 				self.current_url = Some(url.clone());
 				self.load_media(url.clone(), *is_video, &mut responses);
 			}
 			Event::Media(MediaEvent::Prefetch { urls }) => {
+				log::debug!("[Media] Prefetch requested for {} URLs", urls.len());
 				for (url, is_video) in urls {
 					if !self.cache.contains_key(url) && !self.loading_set.contains(url) {
 						self.pending_prefetch.push_back((url.clone(), *is_video));
@@ -113,6 +116,7 @@ impl MediaCache {
 	fn load_media(&mut self, url: String, is_video: bool, responses: &mut Vec<Event>) {
 		// Already cached?
 		if self.cache.contains_key(&url) {
+			log::debug!("[Media] Cache hit: {}", url);
 			if Some(&url) == self.current_url.as_ref() {
 				responses.push(Event::View(ViewEvent::MediaReady));
 			}
@@ -121,6 +125,7 @@ impl MediaCache {
 
 		// Already loading?
 		if self.loading_set.contains(&url) {
+			log::debug!("[Media] Already loading: {}", url);
 			return;
 		}
 
@@ -130,6 +135,7 @@ impl MediaCache {
 			if self.pending_prefetch.iter().any(|(u, _)| u == &url) {
 				return;
 			}
+			log::debug!("[Media] At limit, queuing: {}", url);
 			// Prioritize current_url at front
 			if Some(&url) == self.current_url.as_ref() {
 				self.pending_prefetch.push_front((url, is_video));
@@ -140,9 +146,9 @@ impl MediaCache {
 		}
 
 		self.loading_set.insert(url.clone());
+		log::info!("[Media] Starting load: {} (video={})", url, is_video);
 
 		if is_video {
-			// Video loading is synchronous via egui-video
 			match Player::new(&self.egui_ctx, &url) {
 				Ok(player) => {
 					let player = match self.audio_device.as_mut() {
@@ -151,23 +157,24 @@ impl MediaCache {
 					};
 					self.cache.insert(url.clone(), LoadedMedia::Video(player));
 					self.loading_set.remove(&url);
+					log::info!("[Media] Video loaded: {}", url);
 
 					if Some(&url) == self.current_url.as_ref() {
 						responses.push(Event::View(ViewEvent::MediaReady));
 					}
 				}
 				Err(e) => {
-					log::error!("Failed to load video {}: {}", url, e);
+					log::error!("[Media] Failed to load video {}: {}", url, e);
 					self.loading_set.remove(&url);
 				}
 			}
 		} else {
-			// Image loading is async
 			self.spawn_image_load(url);
 		}
 	}
 
 	fn spawn_image_load(&self, url: String) {
+		log::debug!("[Media] Spawning async image load: {}", url);
 		let sender = self.sender.clone();
 		let ctx = self.egui_ctx.clone();
 
@@ -198,10 +205,8 @@ impl MediaCache {
 	}
 
 	fn prune_cache(&mut self) {
-		// Keep cache size reasonable (max 20 items)
 		const MAX_CACHE_SIZE: usize = 20;
 		if self.cache.len() > MAX_CACHE_SIZE {
-			// Remove oldest entries
 			let to_remove: Vec<String> = self
 				.cache
 				.keys()
@@ -209,6 +214,10 @@ impl MediaCache {
 				.take(self.cache.len() - MAX_CACHE_SIZE)
 				.cloned()
 				.collect();
+
+			if !to_remove.is_empty() {
+				log::debug!("[Media] Pruning {} items from cache", to_remove.len());
+			}
 
 			for key in to_remove {
 				if let Some(LoadedMedia::Video(mut player)) = self.cache.remove(&key) {
@@ -220,7 +229,6 @@ impl MediaCache {
 		}
 	}
 
-	// Accessors for ViewManager
 	pub fn get_media(&mut self, url: &str) -> Option<&mut LoadedMedia> {
 		self.cache.get_mut(url)
 	}

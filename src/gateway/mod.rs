@@ -26,6 +26,7 @@ pub struct BooruGateway {
 
 impl BooruGateway {
 	pub fn new() -> Self {
+		log::info!("[Gateway] Initializing");
 		let (sender, receiver) = mpsc::channel(100);
 		Self {
 			client: Arc::new(E621Client::new()),
@@ -37,7 +38,6 @@ impl BooruGateway {
 		}
 	}
 
-	/// Poll async channel for completed tasks
 	pub fn poll(&mut self) -> ComponentResponse {
 		let mut responses = Vec::new();
 		while let Ok(msg) = self.receiver.try_recv() {
@@ -47,6 +47,12 @@ impl BooruGateway {
 					page,
 					is_new,
 				} => {
+					log::info!(
+						"[Gateway] Search complete: page={}, posts={}, is_new={}",
+						page,
+						posts.len(),
+						is_new
+					);
 					self.fetch_pending = false;
 					self.current_page = page;
 					responses.push(Event::Browser(BrowserEvent::PostsReceived {
@@ -56,6 +62,7 @@ impl BooruGateway {
 					}));
 				}
 				GatewayMessage::SearchError { message } => {
+					log::error!("[Gateway] Search error: {}", message);
 					self.fetch_pending = false;
 					responses.push(Event::Gateway(GatewayEvent::SearchError { message }));
 				}
@@ -72,6 +79,12 @@ impl BooruGateway {
 	pub fn handle(&mut self, event: &Event) -> ComponentResponse {
 		match event {
 			Event::Gateway(GatewayEvent::SearchRequest { query, page, limit }) => {
+				log::info!(
+					"[Gateway] SearchRequest: query='{}', page={}, limit={}",
+					query,
+					page,
+					limit
+				);
 				self.current_query = query.clone();
 				self.current_page = *page;
 				self.fetch_pending = true;
@@ -80,8 +93,15 @@ impl BooruGateway {
 			Event::Gateway(GatewayEvent::FetchNextPage) => {
 				if !self.fetch_pending && !self.current_query.is_empty() {
 					let next_page = self.current_page + 1;
+					log::info!(
+						"[Gateway] FetchNextPage: query='{}', page={}",
+						self.current_query,
+						next_page
+					);
 					self.fetch_pending = true;
 					self.spawn_search(self.current_query.clone(), next_page, 50, false);
+				} else if self.fetch_pending {
+					log::debug!("[Gateway] FetchNextPage ignored: fetch already pending");
 				}
 			}
 			_ => {}
@@ -90,12 +110,24 @@ impl BooruGateway {
 	}
 
 	fn spawn_search(&self, query: String, page: u32, limit: u32, is_new: bool) {
+		log::info!(
+			"[Gateway] Spawning API request: query='{}', page={}, limit={}",
+			query,
+			page,
+			limit
+		);
 		let client = self.client.clone();
 		let sender = self.sender.clone();
 
 		tokio::spawn(async move {
+			log::debug!("[Gateway] API request started: page={}", page);
 			match client.search_posts(&query, limit, page).await {
 				Ok(posts) => {
+					log::info!(
+						"[Gateway] API response: page={}, received {} posts",
+						page,
+						posts.len()
+					);
 					let _ = sender
 						.send(GatewayMessage::SearchComplete {
 							posts,
@@ -105,6 +137,7 @@ impl BooruGateway {
 						.await;
 				}
 				Err(e) => {
+					log::error!("[Gateway] API error: page={}, error={}", page, e);
 					let _ = sender
 						.send(GatewayMessage::SearchError {
 							message: e.to_string(),
@@ -115,7 +148,6 @@ impl BooruGateway {
 		});
 	}
 
-	/// Check if a fetch is in progress
 	pub fn is_loading(&self) -> bool {
 		self.fetch_pending
 	}
