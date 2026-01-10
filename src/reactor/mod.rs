@@ -14,7 +14,6 @@ use crate::browser::ContentBrowser;
 use crate::gateway::BooruGateway;
 use crate::media::MediaCache;
 use crate::settings::SettingsManager;
-use crate::types::NavDirection;
 use crate::view::ViewManager;
 use eframe::egui;
 
@@ -129,32 +128,6 @@ impl Reactor {
 					direction: *direction,
 				}))
 			}
-			SourceEvent::KeyPress { key, modifiers } => {
-				// Handle global key bindings
-				self.handle_keypress(*key, *modifiers)
-			}
-		}
-	}
-
-	fn handle_keypress(&mut self, key: egui::Key, modifiers: egui::Modifiers) -> ComponentResponse {
-		match key {
-			egui::Key::Space => {
-				if modifiers.ctrl {
-					ComponentResponse::emit(Event::Browser(BrowserEvent::Navigate {
-						direction: NavDirection::Skip(10),
-					}))
-				} else if modifiers.shift {
-					ComponentResponse::emit(Event::Browser(BrowserEvent::Navigate {
-						direction: NavDirection::Prev,
-					}))
-				} else {
-					ComponentResponse::emit(Event::Browser(BrowserEvent::Navigate {
-						direction: NavDirection::Next,
-					}))
-				}
-			}
-			egui::Key::C => ComponentResponse::emit(Event::Settings(SettingsEvent::ToggleAutoPlay)),
-			_ => ComponentResponse::none(),
 		}
 	}
 }

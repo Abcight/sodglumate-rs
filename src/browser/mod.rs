@@ -78,13 +78,6 @@ impl ContentBrowser {
 		let mut events = Vec::new();
 
 		if let Some(post) = post {
-			// Emit current post changed
-			events.push(Event::Browser(BrowserEvent::CurrentPostChanged {
-				post: Box::new(post.clone()),
-				index: self.current_index,
-				total: self.posts.len(),
-			}));
-
 			// Request media load if URL available
 			if let Some(url) = &post.file.url {
 				let ext = post.file.ext.to_lowercase();
@@ -98,7 +91,6 @@ impl ContentBrowser {
 			// Check if near end for prefetching
 			let remaining = self.posts.len().saturating_sub(self.current_index + 1);
 			if remaining < 5 {
-				events.push(Event::Browser(BrowserEvent::NearEndOfResults { remaining }));
 				events.push(Event::Gateway(GatewayEvent::FetchNextPage));
 			}
 

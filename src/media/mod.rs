@@ -1,5 +1,5 @@
 use crate::reactor::{ComponentResponse, Event, MediaEvent, ViewEvent};
-use crate::types::{LoadedMedia, MediaHandle};
+use crate::types::LoadedMedia;
 use eframe::egui;
 use egui_video::{AudioDevice, Player};
 use std::collections::{HashMap, HashSet};
@@ -54,16 +54,11 @@ impl MediaCache {
 							self.cache.insert(url.clone(), LoadedMedia::Image(texture));
 
 							if Some(&url) == self.current_url.as_ref() {
-								responses.push(Event::View(ViewEvent::MediaReady {
-									handle: MediaHandle {
-										url: url.clone(),
-										is_video: false,
-									},
-								}));
+								responses.push(Event::View(ViewEvent::MediaReady));
 							}
 						}
 						Err(error) => {
-							responses.push(Event::Media(MediaEvent::LoadError { url, error }));
+							responses.push(Event::Media(MediaEvent::LoadError { error }));
 						}
 					}
 				}
@@ -106,12 +101,7 @@ impl MediaCache {
 		// Already cached?
 		if self.cache.contains_key(&url) {
 			if Some(&url) == self.current_url.as_ref() {
-				responses.push(Event::View(ViewEvent::MediaReady {
-					handle: MediaHandle {
-						url: url.clone(),
-						is_video,
-					},
-				}));
+				responses.push(Event::View(ViewEvent::MediaReady));
 			}
 			return;
 		}
@@ -140,12 +130,7 @@ impl MediaCache {
 					self.loading_set.remove(&url);
 
 					if Some(&url) == self.current_url.as_ref() {
-						responses.push(Event::View(ViewEvent::MediaReady {
-							handle: MediaHandle {
-								url,
-								is_video: true,
-							},
-						}));
+						responses.push(Event::View(ViewEvent::MediaReady));
 					}
 				}
 				Err(e) => {

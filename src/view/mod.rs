@@ -3,7 +3,8 @@ use crate::browser::ContentBrowser;
 use crate::gateway::BooruGateway;
 use crate::media::MediaCache;
 use crate::reactor::{
-	BreathingEvent, ComponentResponse, Event, GatewayEvent, SettingsEvent, SourceEvent, ViewEvent,
+	BreathingEvent, ComponentResponse, Event, GatewayEvent, MediaEvent, SettingsEvent, SourceEvent,
+	ViewEvent,
 };
 use crate::settings::SettingsManager;
 use crate::types::{BreathingPhase, LoadedMedia, NavDirection};
@@ -36,22 +37,18 @@ impl ViewManager {
 
 	pub fn handle(&mut self, event: &Event) -> ComponentResponse {
 		match event {
-			Event::View(ViewEvent::MediaReady { handle: _ }) => {
+			Event::View(ViewEvent::MediaReady) => {
 				self.image_load_time = Instant::now();
 				self.user_has_panned = false;
 				self.error_msg = None;
 				ComponentResponse::none()
 			}
-			Event::View(ViewEvent::UserPanned) => {
-				self.user_has_panned = true;
-				ComponentResponse::none()
-			}
-			Event::View(ViewEvent::SetPanSpeed { seconds }) => {
-				self.auto_pan_cycle_duration = *seconds;
-				ComponentResponse::none()
-			}
 			Event::Gateway(GatewayEvent::SearchError { message }) => {
 				self.error_msg = Some(message.clone());
+				ComponentResponse::none()
+			}
+			Event::Media(MediaEvent::LoadError { error }) => {
+				self.error_msg = Some(format!("Failed to load: {}", error));
 				ComponentResponse::none()
 			}
 			_ => ComponentResponse::none(),

@@ -6,13 +6,6 @@ pub enum LoadedMedia {
 	Video(egui_video::Player),
 }
 
-/// Handle to loaded media
-#[derive(Clone, Debug)]
-pub struct MediaHandle {
-	pub url: String,
-	pub is_video: bool,
-}
-
 /// Breathing exercise phases
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BreathingPhase {
