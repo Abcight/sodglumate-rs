@@ -1,0 +1,33 @@
+TERMS OF SERVICE & END USER LICENSE AGREEMENT
+Last Updated: January 10, 2026
+
+*1. Acceptance and Age Restriction*
+By downloading, installing, accessing, or using sodglumate ("the Application"), you certify that: (a) You are at least 18 years of age (or the age of legal majority in your jurisdiction, whichever is higher); (b) It is legal for you to view sexually explicit material in your jurisdiction; and (c) You voluntarily consent to view content that includes sexually explicit, adult-oriented themes.
+
+*If you do not meet these requirements or do not agree to these terms, you must not access or use the Application and must uninstall it immediately.*
+
+*2. License Grant*
+The Developer grants you a revocable, non-exclusive, non-transferable, limited license to download, install, and use the Application strictly for your personal, non-commercial purposes strictly in accordance with the terms of this Agreement. You agree not to reverse engineer, decompile, or disassemble the Application.
+
+*3. Nature of Content*
+You acknowledge that this Application is a viewing tool. The Application may allow you to view content stored locally on your device or fetched from third-party sources.
+
+*Third-Party Content:*
+We do not own, host, or control the content fetched from third-party APIs or websites. We are not responsible for the accuracy, legality, or decency of content accessed through the Application.
+
+*User Responsibility:*
+You are solely responsible for the content you choose to view, access, or store using the Application.
+
+*4. Prohibited Uses*
+You agree not to use the Application to: (a) View, store, or distribute content that depicts Child Sexual Abuse Material (CSAM) or any content that exploits minors. We have a zero-tolerance policy for such activities and will cooperate with law enforcement. (b) Violate any applicable local, state, national, or international law. (c) Distribute malware, viruses, or harmful code.
+
+*5. Disclaimer of Warranties*
+("AS IS") TO THE FULLEST EXTENT PERMITTED BY LAW, THE APPLICATION IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTY OF ANY KIND. THE DEVELOPER DISCLAIMS ALL WARRANTIES, WHETHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. WE DO NOT WARRANT THAT THE APPLICATION WILL BE ERROR-FREE, SECURE, OR FREE OF VIRUSES.
+
+*6. Limitation of Liability*
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE DEVELOPER BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR DATA, ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF THE APPLICATION. THIS INCLUDES ANY LIABILITY ARISING FROM THE EXPOSURE TO OFFENSIVE OR ADULT CONTENT.
+
+*7. Governing Law*
+This Agreement is governed by the laws of the Republic of Poland, without regard to its conflict of laws principles.
+
+Any dispute, controversy, or claim arising out of or relating to this Agreement, or the breach, termination, or invalidity thereof, shall be settled by the common court having jurisdiction over the Developer’s place of residence.

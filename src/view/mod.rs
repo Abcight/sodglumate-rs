@@ -8,8 +8,15 @@ use crate::reactor::{
 };
 use crate::settings::SettingsManager;
 use crate::types::{BreathingPhase, LoadedMedia, NavDirection};
-use eframe::egui;
+use eframe::egui::{self, ScrollArea};
 use std::time::{Duration, Instant};
+
+/// Content for modal popups
+#[derive(Clone)]
+pub enum ModalContent {
+	None,
+	Hello,
+}
 
 pub struct ViewManager {
 	// Display state
@@ -21,6 +28,9 @@ pub struct ViewManager {
 	search_query: String,
 	search_page_input: String,
 	error_msg: Option<String>,
+
+	// Modal state
+	modal: ModalContent,
 }
 
 impl ViewManager {
@@ -32,6 +42,7 @@ impl ViewManager {
 			search_query: "~gay ~male solo abs wolf order:score -video".to_owned(),
 			search_page_input: "1".to_owned(),
 			error_msg: None,
+			modal: ModalContent::Hello,
 		}
 	}
 
@@ -66,24 +77,36 @@ impl ViewManager {
 		settings: &SettingsManager,
 	) -> Vec<Event> {
 		let mut events = Vec::new();
+		let modal_active = !matches!(self.modal, ModalContent::None);
 
-		// Handle input
-		let is_typing = ctx.memory(|m| m.focused().is_some());
-
-		if !is_typing {
-			self.handle_keyboard_input(ctx, media, &mut events);
+		// Handle input only when no modal is active
+		if !modal_active {
+			let is_typing = ctx.memory(|m| m.focused().is_some());
+			if !is_typing {
+				self.handle_keyboard_input(ctx, media, &mut events);
+			}
 		}
 
 		// Top panel
-		self.render_top_panel(ctx, gateway, settings, breathing, &mut events);
+		self.render_top_panel(
+			ctx,
+			gateway,
+			settings,
+			breathing,
+			&mut events,
+			!modal_active,
+		);
 
 		// Central panel
-		self.render_central_panel(ctx, browser, media, gateway);
+		self.render_central_panel(ctx, browser, media, gateway, !modal_active);
 
 		// Overlays
 		self.render_breathing_overlay(ctx, breathing);
 		self.render_breathing_pulse(ctx, breathing);
 		self.render_info_overlay(ctx, browser);
+
+		// Modal popup (on top of everything)
+		self.render_modal(ctx);
 
 		events
 	}
@@ -146,8 +169,12 @@ impl ViewManager {
 		settings: &SettingsManager,
 		breathing: &BreathingOverlay,
 		events: &mut Vec<Event>,
+		enabled: bool,
 	) {
 		egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+			if !enabled {
+				ui.disable();
+			}
 			ui.horizontal(|ui| {
 				ui.label("Query:");
 				let response = ui.text_edit_singleline(&mut self.search_query);
@@ -171,7 +198,7 @@ impl ViewManager {
 			});
 
 			ui.horizontal(|ui| {
-				ui.label("Settings:");
+				ui.label("Quick settings:");
 
 				let mut auto_play = settings.auto_play();
 				if ui.checkbox(&mut auto_play, "Auto-play").changed() {
@@ -228,8 +255,12 @@ impl ViewManager {
 		browser: &ContentBrowser,
 		media: &mut MediaCache,
 		gateway: &BooruGateway,
+		enabled: bool,
 	) {
 		egui::CentralPanel::default().show(ctx, |ui| {
+			if !enabled {
+				ui.disable();
+			}
 			if gateway.is_loading() && browser.is_empty() {
 				ui.centered_and_justified(|ui| {
 					ui.spinner();
@@ -576,6 +607,130 @@ impl ViewManager {
 		}
 
 		ui.painter().galley(rect.min, galley, color);
+	}
+
+	/// Render modal popup overlay
+	fn render_modal(&mut self, ctx: &egui::Context) {
+		if matches!(self.modal, ModalContent::None) {
+			return;
+		}
+
+		let screen_rect = ctx.screen_rect();
+
+		// Draw semi-transparent dark overlay
+		egui::Area::new(egui::Id::new("modal_backdrop"))
+			.fixed_pos(screen_rect.min)
+			.order(egui::Order::Foreground)
+			.show(ctx, |ui| {
+				let painter = ui.painter();
+				painter.rect_filled(
+					screen_rect,
+					0.0,
+					egui::Color32::from_rgba_unmultiplied(0, 0, 0, 180),
+				);
+			});
+
+		// Draw centered popup window
+		egui::Window::new("popup_modal")
+			.title_bar(false)
+			.resizable(false)
+			.collapsible(false)
+			.anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+			.order(egui::Order::Foreground)
+			.show(ctx, |ui| {
+				ui.set_min_width(400.0);
+				ui.vertical_centered(|ui| match &self.modal.clone() {
+					ModalContent::Hello => {
+						ui.add_space(10.0);
+						ui.heading("Welcome! Please read the Terms of Service.");
+						ui.label("Make sure you are of legal age to view this content.");
+						ui.add_space(10.0);
+
+						// Framed ScrollArea for legal text
+						egui::Frame::none()
+							.fill(egui::Color32::from_gray(40))
+							.inner_margin(12.0)
+							.rounding(4.0)
+							.show(ui, |ui| {
+								ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+									ui.with_layout(
+										egui::Layout::top_down(egui::Align::LEFT),
+										|ui| {
+											// Parse text and make *text* sections bold
+											let legal_text = include_str!("legal.txt");
+											let mut job = egui::text::LayoutJob::default();
+											job.wrap = egui::text::TextWrapping {
+												max_width: ui.available_width(),
+												..Default::default()
+											};
+											job.halign = egui::Align::LEFT;
+											let mut in_bold = false;
+											let mut current_text = String::new();
+
+											for ch in legal_text.chars() {
+												if ch == '*' {
+													// Flush current text
+													if !current_text.is_empty() {
+														let format = if in_bold {
+															egui::TextFormat {
+																font_id: egui::FontId::monospace(
+																	14.0,
+																),
+																color: egui::Color32::WHITE,
+																..Default::default()
+															}
+														} else {
+															egui::TextFormat {
+																font_id: egui::FontId::monospace(
+																	14.0,
+																),
+																color: egui::Color32::LIGHT_GRAY,
+																..Default::default()
+															}
+														};
+														job.append(&current_text, 0.0, format);
+														current_text.clear();
+													}
+													in_bold = !in_bold;
+												} else {
+													current_text.push(ch);
+												}
+											}
+											// Flush remaining text
+											if !current_text.is_empty() {
+												let format = egui::TextFormat {
+													font_id: egui::FontId::monospace(14.0),
+													color: egui::Color32::LIGHT_GRAY,
+													..Default::default()
+												};
+												job.append(&current_text, 0.0, format);
+											}
+
+											ui.label(job);
+										},
+									);
+								});
+							});
+
+						ui.add_space(10.0);
+						ui.label("If you do not meet these requirements or do not agree to these terms, you must not access or use the Application.");
+						ui.add_space(10.0);
+
+						ui.horizontal(|ui| {
+							if ui
+								.button("I am 18 years of age or older and accept")
+								.clicked()
+							{
+								self.modal = ModalContent::None;
+							}
+							if ui.button("Return").clicked() {
+								panic!("User under 18 years of age");
+							}
+						});
+					}
+					ModalContent::None => {}
+				});
+			});
 	}
 }
 
