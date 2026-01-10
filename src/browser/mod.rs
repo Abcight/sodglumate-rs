@@ -10,7 +10,7 @@ pub struct ContentBrowser {
 
 impl ContentBrowser {
 	pub fn new() -> Self {
-		log::info!("[Browser] Initializing");
+		log::info!("Initializing");
 		Self {
 			posts: Vec::new(),
 			current_index: 0,
@@ -27,7 +27,7 @@ impl ContentBrowser {
 			}) => {
 				if *is_new {
 					log::info!(
-						"[Browser] New search results: page={}, posts={}",
+						"New search results: page={}, posts={}",
 						page,
 						posts.len()
 					);
@@ -36,7 +36,7 @@ impl ContentBrowser {
 					self.current_page = *page;
 				} else {
 					log::info!(
-						"[Browser] Appended results: page={}, new_posts={}, total={}",
+						"Appended results: page={}, new_posts={}, total={}",
 						page,
 						posts.len(),
 						self.posts.len() + posts.len()
@@ -48,13 +48,13 @@ impl ContentBrowser {
 				if !self.posts.is_empty() {
 					self.emit_current_post_changed()
 				} else {
-					log::warn!("[Browser] Received empty posts");
+					log::warn!("Received empty posts");
 					ComponentResponse::none()
 				}
 			}
 			Event::Browser(BrowserEvent::Navigate { direction }) => {
 				if self.posts.is_empty() {
-					log::debug!("[Browser] Navigate ignored: no posts");
+					log::debug!("Navigate ignored: no posts");
 					return ComponentResponse::none();
 				}
 
@@ -82,7 +82,7 @@ impl ContentBrowser {
 					}
 				}
 				log::info!(
-					"[Browser] Navigate {:?}: {} -> {} (of {})",
+					"Navigate {:?}: {} -> {} (of {})",
 					direction,
 					old_index,
 					self.current_index,
@@ -105,7 +105,7 @@ impl ContentBrowser {
 				let ext = post.file.ext.to_lowercase();
 				let is_video = matches!(ext.as_str(), "mp4" | "webm" | "gif");
 				log::debug!(
-					"[Browser] Requesting media load: {} (video={})",
+					"Requesting media load: {} (video={})",
 					url,
 					is_video
 				);
@@ -119,7 +119,7 @@ impl ContentBrowser {
 			let remaining = self.posts.len().saturating_sub(self.current_index + 1);
 			if remaining < 5 {
 				log::debug!(
-					"[Browser] Near end of results (remaining={}), requesting next page",
+					"Near end of results (remaining={}), requesting next page",
 					remaining
 				);
 				events.push(Event::Gateway(GatewayEvent::FetchNextPage));
@@ -141,7 +141,7 @@ impl ContentBrowser {
 
 			if !prefetch_urls.is_empty() {
 				log::debug!(
-					"[Browser] Requesting prefetch for {} URLs",
+					"Requesting prefetch for {} URLs",
 					prefetch_urls.len()
 				);
 				events.push(Event::Media(MediaEvent::Prefetch {

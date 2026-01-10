@@ -26,7 +26,7 @@ pub struct BooruGateway {
 
 impl BooruGateway {
 	pub fn new() -> Self {
-		log::info!("[Gateway] Initializing");
+		log::info!("Initializing");
 		let (sender, receiver) = mpsc::channel(100);
 		Self {
 			client: Arc::new(E621Client::new()),
@@ -48,7 +48,7 @@ impl BooruGateway {
 					is_new,
 				} => {
 					log::info!(
-						"[Gateway] Search complete: page={}, posts={}, is_new={}",
+						"Search complete: page={}, posts={}, is_new={}",
 						page,
 						posts.len(),
 						is_new
@@ -62,7 +62,7 @@ impl BooruGateway {
 					}));
 				}
 				GatewayMessage::SearchError { message } => {
-					log::error!("[Gateway] Search error: {}", message);
+					log::error!("Search error: {}", message);
 					self.fetch_pending = false;
 					responses.push(Event::Gateway(GatewayEvent::SearchError { message }));
 				}
@@ -80,7 +80,7 @@ impl BooruGateway {
 		match event {
 			Event::Gateway(GatewayEvent::SearchRequest { query, page, limit }) => {
 				log::info!(
-					"[Gateway] SearchRequest: query='{}', page={}, limit={}",
+					"SearchRequest: query='{}', page={}, limit={}",
 					query,
 					page,
 					limit
@@ -94,14 +94,14 @@ impl BooruGateway {
 				if !self.fetch_pending && !self.current_query.is_empty() {
 					let next_page = self.current_page + 1;
 					log::info!(
-						"[Gateway] FetchNextPage: query='{}', page={}",
+						"FetchNextPage: query='{}', page={}",
 						self.current_query,
 						next_page
 					);
 					self.fetch_pending = true;
 					self.spawn_search(self.current_query.clone(), next_page, 50, false);
 				} else if self.fetch_pending {
-					log::debug!("[Gateway] FetchNextPage ignored: fetch already pending");
+					log::debug!("FetchNextPage ignored: fetch already pending");
 				}
 			}
 			_ => {}
@@ -111,7 +111,7 @@ impl BooruGateway {
 
 	fn spawn_search(&self, query: String, page: u32, limit: u32, is_new: bool) {
 		log::info!(
-			"[Gateway] Spawning API request: query='{}', page={}, limit={}",
+			"Spawning API request: query='{}', page={}, limit={}",
 			query,
 			page,
 			limit
@@ -120,11 +120,11 @@ impl BooruGateway {
 		let sender = self.sender.clone();
 
 		tokio::spawn(async move {
-			log::debug!("[Gateway] API request started: page={}", page);
+			log::debug!("API request started: page={}", page);
 			match client.search_posts(&query, limit, page).await {
 				Ok(posts) => {
 					log::info!(
-						"[Gateway] API response: page={}, received {} posts",
+						"API response: page={}, received {} posts",
 						page,
 						posts.len()
 					);
@@ -137,7 +137,7 @@ impl BooruGateway {
 						.await;
 				}
 				Err(e) => {
-					log::error!("[Gateway] API error: page={}, error={}", page, e);
+					log::error!("API error: page={}, error={}", page, e);
 					let _ = sender
 						.send(GatewayMessage::SearchError {
 							message: e.to_string(),

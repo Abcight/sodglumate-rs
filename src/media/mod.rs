@@ -25,7 +25,7 @@ pub struct MediaCache {
 
 impl MediaCache {
 	pub fn new(ctx: &egui::Context) -> Self {
-		log::info!("[Media] Initializing");
+		log::info!("Initializing");
 		let (sender, receiver) = mpsc::channel(100);
 		Self {
 			cache: HashMap::new(),
@@ -47,7 +47,7 @@ impl MediaCache {
 					self.loading_set.remove(&url);
 					match result {
 						Ok(color_image) => {
-							log::info!("[Media] Image loaded: {}", url);
+							log::info!("Image loaded: {}", url);
 							let texture = self.egui_ctx.load_texture(
 								&url,
 								color_image,
@@ -60,7 +60,7 @@ impl MediaCache {
 							}
 						}
 						Err(error) => {
-							log::error!("[Media] Image load failed: {} - {}", url, error);
+							log::error!("Image load failed: {} - {}", url, error);
 							responses.push(Event::Media(MediaEvent::LoadError { error }));
 						}
 					}
@@ -91,12 +91,12 @@ impl MediaCache {
 
 		match event {
 			Event::Media(MediaEvent::LoadRequest { url, is_video }) => {
-				log::info!("[Media] LoadRequest: {} (video={})", url, is_video);
+				log::info!("LoadRequest: {} (video={})", url, is_video);
 				self.current_url = Some(url.clone());
 				self.load_media(url.clone(), *is_video, &mut responses);
 			}
 			Event::Media(MediaEvent::Prefetch { urls }) => {
-				log::debug!("[Media] Prefetch requested for {} URLs", urls.len());
+				log::debug!("Prefetch requested for {} URLs", urls.len());
 				for (url, is_video) in urls {
 					if !self.cache.contains_key(url) && !self.loading_set.contains(url) {
 						self.pending_prefetch.push_back((url.clone(), *is_video));
@@ -116,7 +116,7 @@ impl MediaCache {
 	fn load_media(&mut self, url: String, is_video: bool, responses: &mut Vec<Event>) {
 		// Already cached?
 		if self.cache.contains_key(&url) {
-			log::debug!("[Media] Cache hit: {}", url);
+			log::debug!("Cache hit: {}", url);
 			if Some(&url) == self.current_url.as_ref() {
 				responses.push(Event::View(ViewEvent::MediaReady));
 			}
@@ -125,7 +125,7 @@ impl MediaCache {
 
 		// Already loading?
 		if self.loading_set.contains(&url) {
-			log::debug!("[Media] Already loading: {}", url);
+			log::debug!("Already loading: {}", url);
 			return;
 		}
 
@@ -135,7 +135,7 @@ impl MediaCache {
 			if self.pending_prefetch.iter().any(|(u, _)| u == &url) {
 				return;
 			}
-			log::debug!("[Media] At limit, queuing: {}", url);
+			log::debug!("At limit, queuing: {}", url);
 			// Prioritize current_url at front
 			if Some(&url) == self.current_url.as_ref() {
 				self.pending_prefetch.push_front((url, is_video));
@@ -146,7 +146,7 @@ impl MediaCache {
 		}
 
 		self.loading_set.insert(url.clone());
-		log::info!("[Media] Starting load: {} (video={})", url, is_video);
+		log::info!("Starting load: {} (video={})", url, is_video);
 
 		if is_video {
 			match Player::new(&self.egui_ctx, &url) {
@@ -157,14 +157,14 @@ impl MediaCache {
 					};
 					self.cache.insert(url.clone(), LoadedMedia::Video(player));
 					self.loading_set.remove(&url);
-					log::info!("[Media] Video loaded: {}", url);
+					log::info!("Video loaded: {}", url);
 
 					if Some(&url) == self.current_url.as_ref() {
 						responses.push(Event::View(ViewEvent::MediaReady));
 					}
 				}
 				Err(e) => {
-					log::error!("[Media] Failed to load video {}: {}", url, e);
+					log::error!("Failed to load video {}: {}", url, e);
 					self.loading_set.remove(&url);
 				}
 			}
@@ -174,7 +174,7 @@ impl MediaCache {
 	}
 
 	fn spawn_image_load(&self, url: String) {
-		log::debug!("[Media] Spawning async image load: {}", url);
+		log::debug!("Spawning async image load: {}", url);
 		let sender = self.sender.clone();
 		let ctx = self.egui_ctx.clone();
 
@@ -216,7 +216,7 @@ impl MediaCache {
 				.collect();
 
 			if !to_remove.is_empty() {
-				log::debug!("[Media] Pruning {} items from cache", to_remove.len());
+				log::debug!("Pruning {} items from cache", to_remove.len());
 			}
 
 			for key in to_remove {

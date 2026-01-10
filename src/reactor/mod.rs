@@ -31,7 +31,7 @@ pub struct Reactor {
 
 impl Reactor {
 	pub fn new(ctx: &egui::Context) -> Self {
-		log::info!("[Reactor] Initializing all components");
+		log::info!("Initializing all components");
 		let mut reactor = Self {
 			queue: EventQueue::new(),
 			scheduler: Scheduler::new(),
@@ -45,7 +45,7 @@ impl Reactor {
 
 		// Initialize all components
 		reactor.process_response(reactor.breathing.init());
-		log::info!("[Reactor] Initialization complete");
+		log::info!("Initialization complete");
 
 		reactor
 	}
@@ -72,13 +72,13 @@ impl Reactor {
 		// Process event queue until empty
 		let mut iterations = 0;
 		while let Some(event) = self.queue.pop() {
-			log::trace!("[Reactor] Processing event: {:?}", event);
+			log::trace!("Processing event: {:?}", event);
 			let response = self.route(&event);
 			self.process_response(response);
 
 			iterations += 1;
 			if iterations > 1000 {
-				log::warn!("[Reactor] Event loop exceeded 1000 iterations, breaking");
+				log::warn!("Event loop exceeded 1000 iterations, breaking");
 				break;
 			}
 		}
@@ -96,7 +96,7 @@ impl Reactor {
 
 		// Process any events from rendering immediately
 		for event in events {
-			log::trace!("[Reactor] Processing render event: {:?}", event);
+			log::trace!("Processing render event: {:?}", event);
 			let response = self.route(&event);
 			self.process_response(response);
 		}
@@ -117,7 +117,7 @@ impl Reactor {
 	fn handle_source(&mut self, event: &SourceEvent) -> ComponentResponse {
 		match event {
 			SourceEvent::Search { query, page } => {
-				log::info!("[Reactor] Source search: query='{}', page={}", query, page);
+				log::info!("Source search: query='{}', page={}", query, page);
 				ComponentResponse::emit(Event::Gateway(GatewayEvent::SearchRequest {
 					query: query.clone(),
 					page: *page,
@@ -125,7 +125,7 @@ impl Reactor {
 				}))
 			}
 			SourceEvent::Navigate(direction) => {
-				log::debug!("[Reactor] Source navigate: {:?}", direction);
+				log::debug!("Source navigate: {:?}", direction);
 				ComponentResponse::emit(Event::Browser(BrowserEvent::Navigate {
 					direction: *direction,
 				}))
