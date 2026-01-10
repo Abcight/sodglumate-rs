@@ -1,7 +1,14 @@
 mod api;
-mod app;
+mod breathing;
+mod browser;
+mod gateway;
+mod media;
+mod reactor;
+mod settings;
+mod types;
+mod view;
 
-use app::SodglumateApp;
+use reactor::Reactor;
 
 #[tokio::main]
 async fn main() -> eframe::Result<()> {
@@ -17,6 +24,6 @@ async fn main() -> eframe::Result<()> {
 	eframe::run_native(
 		"Sodglumate",
 		native_options,
-		Box::new(|cc| Ok(Box::new(SodglumateApp::new(cc)))),
+		Box::new(|cc| Ok(Box::new(Reactor::new(&cc.egui_ctx)))),
 	)
 }
