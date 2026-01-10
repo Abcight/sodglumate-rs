@@ -37,8 +37,8 @@ impl BooruGateway {
 		}
 	}
 
-	pub fn handle(&mut self, event: &Event) -> ComponentResponse {
-		// Drain any completed async messages
+	/// Poll async channel for completed tasks
+	pub fn poll(&mut self) -> ComponentResponse {
 		let mut responses = Vec::new();
 		while let Ok(msg) = self.receiver.try_recv() {
 			match msg {
@@ -62,7 +62,14 @@ impl BooruGateway {
 			}
 		}
 
-		// Handle incoming event
+		if responses.is_empty() {
+			ComponentResponse::none()
+		} else {
+			ComponentResponse::emit_many(responses)
+		}
+	}
+
+	pub fn handle(&mut self, event: &Event) -> ComponentResponse {
 		match event {
 			Event::Gateway(GatewayEvent::SearchRequest { query, page, limit }) => {
 				self.current_query = query.clone();
@@ -79,12 +86,7 @@ impl BooruGateway {
 			}
 			_ => {}
 		}
-
-		if responses.is_empty() {
-			ComponentResponse::none()
-		} else {
-			ComponentResponse::emit_many(responses)
-		}
+		ComponentResponse::none()
 	}
 
 	fn spawn_search(&self, query: String, page: u32, limit: u32, is_new: bool) {

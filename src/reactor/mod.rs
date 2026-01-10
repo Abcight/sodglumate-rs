@@ -34,7 +34,7 @@ pub struct Reactor {
 
 impl Reactor {
 	pub fn new(ctx: &egui::Context) -> Self {
-		Self {
+		let mut reactor = Self {
 			queue: EventQueue::new(),
 			scheduler: Scheduler::new(),
 			gateway: BooruGateway::new(),
@@ -43,6 +43,20 @@ impl Reactor {
 			breathing: BreathingOverlay::new(),
 			view: ViewManager::new(),
 			settings: SettingsManager::new(),
+		};
+
+		// Initialize all components
+		reactor.process_response(reactor.breathing.init());
+
+		reactor
+	}
+
+	fn process_response(&mut self, response: ComponentResponse) {
+		for e in response.events {
+			self.queue.push(e);
+		}
+		for (e, d) in response.scheduled {
+			self.scheduler.schedule(e, d);
 		}
 	}
 
@@ -51,19 +65,27 @@ impl Reactor {
 		// Drain scheduled events
 		self.scheduler.tick(&mut self.queue);
 
-		// Process queue
+		// Poll async components
+		let gateway_response = self.gateway.poll();
+		let media_response = self.media.poll();
+		self.process_response(gateway_response);
+		self.process_response(media_response);
+
+		// Process event queue until empty
+		let mut iterations = 0;
 		while let Some(event) = self.queue.pop() {
 			let response = self.route(&event);
-			for e in response.events {
-				self.queue.push(e);
-			}
-			for (e, d) in response.scheduled {
-				self.scheduler.schedule(e, d);
+			self.process_response(response);
+
+			// Safety: prevent infinite loops
+			iterations += 1;
+			if iterations > 1000 {
+				log::warn!("Event loop exceeded 1000 iterations, breaking");
+				break;
 			}
 		}
 
 		// Render
-		// We need to split the borrows to allow view to mutably access media
 		let events = {
 			let gateway = &self.gateway;
 			let browser = &self.browser;
@@ -74,9 +96,10 @@ impl Reactor {
 				.render(ctx, gateway, browser, &mut self.media, breathing, settings)
 		};
 
-		// Queue any events from rendering
+		// Process any events from rendering immediately
 		for event in events {
-			self.queue.push(event);
+			let response = self.route(&event);
+			self.process_response(response);
 		}
 	}
 

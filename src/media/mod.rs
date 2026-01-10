@@ -19,7 +19,7 @@ pub struct MediaCache {
 	current_url: Option<String>,
 	sender: mpsc::Sender<MediaMessage>,
 	receiver: mpsc::Receiver<MediaMessage>,
-	audio_device: AudioDevice,
+	audio_device: Option<AudioDevice>,
 	egui_ctx: egui::Context,
 }
 
@@ -32,13 +32,13 @@ impl MediaCache {
 			current_url: None,
 			sender,
 			receiver,
-			audio_device: AudioDevice::new().expect("Failed to create audio device"),
+			audio_device: AudioDevice::new().ok(),
 			egui_ctx: ctx.clone(),
 		}
 	}
 
-	pub fn handle(&mut self, event: &Event) -> ComponentResponse {
-		// Drain completed async loads
+	/// Poll async channel for completed image loads (called every frame)
+	pub fn poll(&mut self) -> ComponentResponse {
 		let mut responses = Vec::new();
 		while let Ok(msg) = self.receiver.try_recv() {
 			match msg {
@@ -53,7 +53,6 @@ impl MediaCache {
 							);
 							self.cache.insert(url.clone(), LoadedMedia::Image(texture));
 
-							// If this is the current URL, notify ViewManager
 							if Some(&url) == self.current_url.as_ref() {
 								responses.push(Event::View(ViewEvent::MediaReady {
 									handle: MediaHandle {
@@ -71,7 +70,18 @@ impl MediaCache {
 			}
 		}
 
-		// Handle incoming events
+		self.prune_cache();
+
+		if responses.is_empty() {
+			ComponentResponse::none()
+		} else {
+			ComponentResponse::emit_many(responses)
+		}
+	}
+
+	pub fn handle(&mut self, event: &Event) -> ComponentResponse {
+		let mut responses = Vec::new();
+
 		match event {
 			Event::Media(MediaEvent::LoadRequest { url, is_video }) => {
 				self.current_url = Some(url.clone());
@@ -84,9 +94,6 @@ impl MediaCache {
 			}
 			_ => {}
 		}
-
-		// Prune cache if needed
-		self.prune_cache();
 
 		if responses.is_empty() {
 			ComponentResponse::none()
@@ -125,13 +132,9 @@ impl MediaCache {
 			// Video loading is synchronous via egui-video
 			match Player::new(&self.egui_ctx, &url) {
 				Ok(player) => {
-					let player = match player.with_audio(&mut self.audio_device) {
-						Ok(p) => p,
-						Err(e) => {
-							log::error!("Failed to enable audio for video: {} ({})", url, e);
-							self.loading_set.remove(&url);
-							return;
-						}
+					let player = match self.audio_device.as_mut() {
+						Some(audio_device) => player.with_audio(audio_device).unwrap(),
+						None => player,
 					};
 					self.cache.insert(url.clone(), LoadedMedia::Video(player));
 					self.loading_set.remove(&url);

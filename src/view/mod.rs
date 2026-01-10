@@ -3,7 +3,7 @@ use crate::browser::ContentBrowser;
 use crate::gateway::BooruGateway;
 use crate::media::MediaCache;
 use crate::reactor::{
-	ComponentResponse, Event, GatewayEvent, SettingsEvent, SourceEvent, ViewEvent,
+	BreathingEvent, ComponentResponse, Event, GatewayEvent, SettingsEvent, SourceEvent, ViewEvent,
 };
 use crate::settings::SettingsManager;
 use crate::types::{BreathingPhase, LoadedMedia, NavDirection};
@@ -78,7 +78,7 @@ impl ViewManager {
 		}
 
 		// Top panel
-		self.render_top_panel(ctx, gateway, settings, &mut events);
+		self.render_top_panel(ctx, gateway, settings, breathing, &mut events);
 
 		// Central panel
 		self.render_central_panel(ctx, browser, media, gateway);
@@ -147,6 +147,7 @@ impl ViewManager {
 		ctx: &egui::Context,
 		_gateway: &BooruGateway,
 		settings: &SettingsManager,
+		breathing: &BreathingOverlay,
 		events: &mut Vec<Event>,
 	) {
 		egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -188,6 +189,25 @@ impl ViewManager {
 					{
 						events.push(Event::Settings(SettingsEvent::SetDelay {
 							duration: Duration::from_secs_f32(seconds),
+						}));
+					}
+				}
+
+				ui.separator();
+
+				let mut breathing_enabled = breathing.is_visible();
+				if ui.checkbox(&mut breathing_enabled, "Breathing").changed() {
+					events.push(Event::Breathing(BreathingEvent::Toggle));
+				}
+
+				if breathing.is_visible() {
+					let mut idle_mult = breathing.idle_multiplier();
+					if ui
+						.add(egui::Slider::new(&mut idle_mult, 0.5..=3.0).text("Idle"))
+						.changed()
+					{
+						events.push(Event::Breathing(BreathingEvent::SetIdleMultiplier {
+							value: idle_mult,
 						}));
 					}
 				}

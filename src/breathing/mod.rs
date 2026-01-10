@@ -28,30 +28,20 @@ impl BreathingOverlay {
 		}
 	}
 
+	pub fn init(&self) -> ComponentResponse {
+		ComponentResponse::schedule(
+			Event::Breathing(BreathingEvent::PhaseComplete),
+			self.state.duration,
+		)
+	}
+
 	pub fn handle(&mut self, event: &Event) -> ComponentResponse {
 		match event {
 			Event::Breathing(BreathingEvent::Toggle) => {
 				self.show_overlay = !self.show_overlay;
-				if self.show_overlay {
-					// Start with prepare phase
-					self.state = BreathingState {
-						phase: BreathingPhase::Prepare,
-						start_time: Instant::now(),
-						duration: Duration::from_secs(5),
-					};
-					// Schedule phase completion
-					return ComponentResponse::schedule(
-						Event::Breathing(BreathingEvent::PhaseComplete),
-						self.state.duration,
-					);
-				}
 				ComponentResponse::none()
 			}
 			Event::Breathing(BreathingEvent::PhaseComplete) => {
-				if !self.show_overlay {
-					return ComponentResponse::none();
-				}
-
 				// Transition to next phase
 				let (next_phase, duration) = self.transition_phase();
 				self.state = BreathingState {
@@ -60,12 +50,11 @@ impl BreathingOverlay {
 					duration,
 				};
 
-				// Emit phase changed and schedule next completion
-				ComponentResponse::emit(Event::Breathing(BreathingEvent::PhaseChanged {
-					phase: next_phase,
-					remaining: duration,
-				}))
-				.with_scheduled(Event::Breathing(BreathingEvent::PhaseComplete), duration)
+				// Schedule next phase completion
+				ComponentResponse::schedule(
+					Event::Breathing(BreathingEvent::PhaseComplete),
+					duration,
+				)
 			}
 			Event::Breathing(BreathingEvent::SetIdleMultiplier { value }) => {
 				self.idle_multiplier = *value;
@@ -98,7 +87,7 @@ impl BreathingOverlay {
 					let duration_secs = rng.random_range(5..=12);
 					(BreathingPhase::Inhale, Duration::from_secs(duration_secs))
 				} else {
-					let duration_secs = rng.random_range(17..=28);
+					let duration_secs: u64 = rng.random_range(17..=28);
 					let duration_secs = (duration_secs as f32 * self.idle_multiplier) as u64;
 					(BreathingPhase::Idle, Duration::from_secs(duration_secs))
 				}
@@ -117,6 +106,10 @@ impl BreathingOverlay {
 
 	pub fn state(&self) -> &BreathingState {
 		&self.state
+	}
+
+	pub fn idle_multiplier(&self) -> f32 {
+		self.idle_multiplier
 	}
 }
 
