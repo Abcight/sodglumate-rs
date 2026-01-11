@@ -28,6 +28,8 @@ pub struct ViewManager {
 	search_query: String,
 	search_page_input: String,
 	error_msg: Option<String>,
+	user_is_adult: bool,
+	user_accepted_tos: bool,
 
 	// Modal state
 	modal: ModalContent,
@@ -42,6 +44,8 @@ impl ViewManager {
 			search_query: "~gay ~male solo abs wolf order:score -video".to_owned(),
 			search_page_input: "1".to_owned(),
 			error_msg: None,
+			user_is_adult: false,
+			user_accepted_tos: false,
 			modal: ModalContent::Hello,
 		}
 	}
@@ -638,11 +642,11 @@ impl ViewManager {
 			.anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
 			.order(egui::Order::Foreground)
 			.show(ctx, |ui| {
-				ui.set_min_width(400.0);
+				ui.set_width(450.0);
 				ui.vertical_centered(|ui| match &self.modal.clone() {
 					ModalContent::Hello => {
 						ui.add_space(10.0);
-						ui.heading("Welcome! Please read the Terms of Service.");
+						ui.heading("Welcome! Please read the Terms of Use.");
 						ui.label("Make sure you are of legal age to view this content.");
 						ui.add_space(10.0);
 
@@ -716,16 +720,28 @@ impl ViewManager {
 						ui.label("If you do not meet these requirements or do not agree to these terms, you must not access or use the Application.");
 						ui.add_space(10.0);
 
+						ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+							ui.checkbox(&mut self.user_is_adult, "I am 18 years of age or older.");
+							ui.checkbox(
+								&mut self.user_accepted_tos,
+								"I have read and accept the Terms of Use.",
+							);
+						});
+
+						ui.add_space(10.0);
+
 						ui.horizontal(|ui| {
-							if ui
-								.button("I am 18 years of age or older and accept")
-								.clicked()
-							{
-								self.modal = ModalContent::None;
-							}
-							if ui.button("Return").clicked() {
+							if ui.button("   Decline   ").clicked() {
 								panic!("User under 18 years of age");
 							}
+							ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+								if !self.user_accepted_tos || !self.user_is_adult {
+									ui.disable();
+								}
+								if ui.button("   Enter   ").clicked() {
+									self.modal = ModalContent::None;
+								}
+							});
 						});
 					}
 					ModalContent::None => {}
