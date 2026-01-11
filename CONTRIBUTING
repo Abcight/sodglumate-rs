@@ -1,0 +1,50 @@
+                         Contributing to Sodglumate
+
+Thank you for your interest in contributing to this project!
+
+
+DEVELOPER CERTIFICATE OF ORIGIN
+
+    All contributions require a sign-off indicating agreement to the
+    Developer Certificate of Origin.  See the file "DCO" in this
+    directory for the full text.
+
+
+HOW TO SIGN OFF
+
+    Add a Signed-off-by line to your commit messages:
+
+        feat: add new feature
+
+        Signed-off-by: Your Name <your.email@example.com>
+
+    You can do this automatically by passing the -s flag to git-commit:
+
+        git commit -s -m "your commit message"
+
+    By signing off, you certify that you assign all copyright in your
+    contribution to the project maintainer as described in the DCO.
+
+
+SUBMITTING CHANGES
+
+    1.  Fork the repository.
+    2.  Create a feature branch (git checkout -b feature/my-feature).
+    3.  Make your changes.
+    4.  Ensure all commits are signed off (git commit -s).
+    5.  Push to your fork.
+    6.  Open a Pull Request.
+
+
+CODE STYLE
+
+    Before committing, please ensure:
+
+    -  Code is formatted with "cargo fmt"
+    -  No warnings from "cargo clippy"
+    -  Tests are added for new functionality where applicable
+
+
+QUESTIONS
+
+    Open an issue if you have questions about contributing.

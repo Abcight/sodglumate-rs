@@ -101,7 +101,7 @@ pub struct E621Client {
 impl E621Client {
 	pub fn new() -> Self {
 		let client = reqwest::Client::builder()
-			.user_agent("Sodglumate/0.1 (by unknown)")
+			.user_agent("Sodglumate/0.1 (by furikeno)")
 			.build()
 			.expect("Failed to build reqwest client");
 		Self { client }

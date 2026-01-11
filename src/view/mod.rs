@@ -732,7 +732,7 @@ impl ViewManager {
 
 						ui.horizontal(|ui| {
 							if ui.button("   Decline   ").clicked() {
-								panic!("User under 18 years of age");
+								std::process::exit(0);
 							}
 							ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 								if !self.user_accepted_tos || !self.user_is_adult {

@@ -1,0 +1,59 @@
+name: DCO Check
+
+on:
+  pull_request:
+
+jobs:
+  dco:
+    name: Developer Certificate of Origin
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check DCO sign-off
+        run: |
+          # Get the commits in this PR
+          BASE_SHA=${{ github.event.pull_request.base.sha }}
+          HEAD_SHA=${{ github.event.pull_request.head.sha }}
+          
+          echo "Checking commits from $BASE_SHA to $HEAD_SHA"
+          
+          FAILED=0
+          for COMMIT in $(git rev-list $BASE_SHA..$HEAD_SHA); do
+            echo "Checking commit: $COMMIT"
+            MESSAGE=$(git log -1 --format=%B $COMMIT)
+            
+            if ! echo "$MESSAGE" | grep -qE "^Signed-off-by: .+ <.+>"; then
+              echo "ERROR: Commit $COMMIT is missing Signed-off-by line"
+              echo "Message was:"
+              echo "$MESSAGE"
+              echo ""
+              FAILED=1
+            else
+              echo "OK: Commit $COMMIT has valid sign-off"
+            fi
+          done
+          
+          if [ $FAILED -eq 1 ]; then
+            echo ""
+            echo "========================================"
+            echo "One or more commits are missing DCO sign-off."
+            echo ""
+            echo "Please sign off your commits by adding:"
+            echo "  Signed-off-by: Your Name <your.email@example.com>"
+            echo ""
+            echo "You can amend your last commit with:"
+            echo "  git commit --amend -s"
+            echo ""
+            echo "Or rebase with sign-off:"
+            echo "  git rebase --signoff HEAD~N"
+            echo ""
+            echo "See CONTRIBUTING and DCO files for details."
+            echo "========================================"
+            exit 1
+          fi
+          
+          echo "All commits have valid DCO sign-off!"
