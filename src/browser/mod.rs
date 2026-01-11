@@ -25,19 +25,31 @@ impl ContentBrowser {
 				page,
 				is_new,
 			}) => {
+				let filtered_posts: Vec<Post> = posts
+					.iter()
+					.filter(|p| {
+						let ext = p.file.ext.to_lowercase();
+						ext != "mp4" && ext != "webm"
+					})
+					.cloned()
+					.collect();
+
 				if *is_new {
-					log::info!("New search results: page={}, posts={}", page, posts.len());
-					self.posts = posts.clone();
+					log::info!(
+						"New search results: page={}, posts={}",
+						page,
+						filtered_posts.len(),
+					);
+					self.posts = filtered_posts;
 					self.current_index = 0;
 					self.current_page = *page;
 				} else {
 					log::info!(
-						"Appended results: page={}, new_posts={}, total={}",
+						"Appended results: page={}, new_posts={}",
 						page,
-						posts.len(),
-						self.posts.len() + posts.len()
+						filtered_posts.len(),
 					);
-					self.posts.extend(posts.clone());
+					self.posts.extend(filtered_posts);
 					self.current_page = *page;
 				}
 
@@ -97,8 +109,7 @@ impl ContentBrowser {
 
 		if let Some(post) = post {
 			// Request media load with sample and full URLs
-			let ext = post.file.ext.to_lowercase();
-			let is_video = matches!(ext.as_str(), "mp4" | "webm" | "gif");
+			let is_video = false;
 			let sample_url = if post.sample.has {
 				post.sample.url.clone()
 			} else {
@@ -135,8 +146,7 @@ impl ContentBrowser {
 				.filter_map(|i| {
 					let idx = (self.current_index + i) % self.posts.len();
 					self.posts.get(idx).map(|p| {
-						let ext = p.file.ext.to_lowercase();
-						let is_video = matches!(ext.as_str(), "mp4" | "webm" | "gif");
+						let is_video = false;
 						let sample_url = if p.sample.has {
 							p.sample.url.clone()
 						} else {

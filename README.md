@@ -14,7 +14,7 @@ Designed with mostly single-handed operation in mind.
 
 ### Features
 - Tag-based search with pagination
-- Support for images (JPEG, PNG, WebP, GIF) and videos (MP4, WebM)
+- Support for images (JPEG, PNG, WebP, GIF)
 - Automatic slideshow with configurable timing
 - Auto-panning for images larger than viewport
 - Aggressive prefetching for seamless browsing
@@ -34,8 +34,6 @@ For this reason, most keystrokes are located on the left side of the keyboard.
 | **Ctrl+Space** | Skip 10 Images |
 | **WASD** | Pan Image / Scroll |
 | **C** | Toggle Auto-play |
-| **Z** | Seek Video -1s |
-| **X** | Seek Video +1s |
 
 ### Links
 

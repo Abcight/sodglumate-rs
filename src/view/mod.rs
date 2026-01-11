@@ -46,7 +46,7 @@ impl ViewManager {
 			image_load_time: Instant::now(),
 			user_has_panned: false,
 			auto_pan_cycle_duration: 10.0,
-			search_query: "~gay ~male solo abs wolf order:score -video".to_owned(),
+			search_query: "~gay ~male solo abs wolf order:score".to_owned(),
 			search_page_input: "1".to_owned(),
 			error_msg: None,
 			user_is_adult: false,
@@ -125,7 +125,7 @@ impl ViewManager {
 	fn handle_keyboard_input(
 		&mut self,
 		ctx: &egui::Context,
-		media: &mut MediaCache,
+		_media: &mut MediaCache,
 		events: &mut Vec<Event>,
 	) {
 		let space_pressed = ctx.input(|i| i.key_pressed(egui::Key::Space));
@@ -144,31 +144,6 @@ impl ViewManager {
 				events.push(Event::Source(SourceEvent::Navigate(NavDirection::Prev)));
 			} else {
 				events.push(Event::Source(SourceEvent::Navigate(NavDirection::Next)));
-			}
-		}
-
-		// Video controls
-		let current_url = media.current_url().map(|s| s.to_string());
-		if let Some(_url) = current_url {
-			if let Some(LoadedMedia::Video(player)) = media.get_current_media() {
-				if ctx.input(|i| i.key_pressed(egui::Key::Z)) {
-					let current = player.elapsed_ms();
-					let duration = player.duration_ms;
-					if duration > 0 {
-						let new_time = current.saturating_sub(1000);
-						let frac = new_time as f32 / duration as f32;
-						player.seek(frac);
-					}
-				}
-				if ctx.input(|i| i.key_pressed(egui::Key::X)) {
-					let current = player.elapsed_ms();
-					let duration = player.duration_ms;
-					if duration > 0 {
-						let new_time = (current + 1000).min(duration);
-						let frac = new_time as f32 / duration as f32;
-						player.seek(frac);
-					}
-				}
 			}
 		}
 	}
@@ -359,47 +334,6 @@ impl ViewManager {
 						handle_scroll_input(ui, &mut user_panned);
 						ui.add(egui::Image::new(&*texture).fit_to_exact_size(display_size));
 					});
-				}
-				LoadedMedia::Video(player) => {
-					let available_size = ui.available_size();
-					let width = player.size.x;
-					let height = player.size.y;
-
-					if width > 0.0 && height > 0.0 {
-						let img_size = egui::vec2(width, height);
-						let width_ratio = available_size.x / img_size.x;
-						let height_ratio = available_size.y / img_size.y;
-						let scale = width_ratio.max(height_ratio);
-						let display_size = img_size * scale;
-
-						let mut scroll_area = egui::ScrollArea::both().scroll_bar_visibility(
-							egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
-						);
-
-						if !user_panned {
-							let elapsed = load_time.elapsed().as_secs_f32();
-							let cycle = (elapsed * 2.0 * std::f32::consts::PI) / pan_cycle;
-							let factor = cycle.sin() * 0.5 + 0.5;
-
-							let overflow = display_size - available_size;
-							if overflow.x > 0.0 {
-								scroll_area =
-									scroll_area.horizontal_scroll_offset(overflow.x * factor);
-							}
-							if overflow.y > 0.0 {
-								scroll_area =
-									scroll_area.vertical_scroll_offset(overflow.y * factor);
-							}
-							ctx.request_repaint();
-						}
-
-						scroll_area.show(ui, |ui| {
-							handle_scroll_input(ui, &mut user_panned);
-							player.ui(ui, display_size);
-						});
-					} else {
-						player.ui(ui, available_size);
-					}
 				}
 			}
 		} else if media.is_loading() {

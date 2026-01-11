@@ -142,7 +142,11 @@ impl BooruGateway {
 		ComponentResponse::none()
 	}
 
-	fn spawn_search(&self, query: String, page: u32, limit: u32, is_new: bool) {
+	fn spawn_search(&self, mut query: String, page: u32, limit: u32, is_new: bool) {
+		// TODO: This is a hack
+		if !query.contains("-video") {
+			query.push_str(" -video");
+		}
 		log::info!(
 			"Spawning API request: query='{}', page={}, limit={}",
 			query,

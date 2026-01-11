@@ -1,7 +1,7 @@
 use crate::reactor::{ComponentResponse, Event, MediaEvent, ViewEvent};
 use crate::types::LoadedMedia;
 use eframe::egui;
-use egui_video::{AudioDevice, Player};
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use tokio::sync::mpsc;
 
@@ -43,7 +43,7 @@ pub struct MediaCache {
 
 	sender: mpsc::Sender<MediaMessage>,
 	receiver: mpsc::Receiver<MediaMessage>,
-	audio_device: Option<AudioDevice>,
+
 	egui_ctx: egui::Context,
 }
 
@@ -59,7 +59,7 @@ impl MediaCache {
 			pending_full: VecDeque::new(),
 			sender,
 			receiver,
-			audio_device: AudioDevice::new().ok(),
+
 			egui_ctx: ctx.clone(),
 		}
 	}
@@ -124,7 +124,7 @@ impl MediaCache {
 		}
 
 		// Process loading queue with priority logic
-		self.process_loading_queue(&mut responses);
+		self.process_loading_queue();
 
 		self.prune_cache();
 
@@ -135,7 +135,7 @@ impl MediaCache {
 		}
 	}
 
-	fn process_loading_queue(&mut self, responses: &mut Vec<Event>) {
+	fn process_loading_queue(&mut self) {
 		// Current item sample
 		if let Some(ref current) = self.current_item.clone() {
 			let cache_key = self.get_cache_key(&current);
@@ -189,10 +189,8 @@ impl MediaCache {
 					if self.cache.contains_key(&cache_key) {
 						continue; // Already cached
 					}
-					if item.is_video {
-						self.load_video(&item, responses);
-						loaded_this_cycle += 1;
-					} else if let Some(ref sample_url) = item.sample_url {
+
+					if let Some(ref sample_url) = item.sample_url {
 						if !self.loading_set.contains(sample_url) {
 							self.start_image_load(sample_url.clone(), true, cache_key);
 							self.pending_full.push_back(item);
@@ -278,41 +276,6 @@ impl MediaCache {
 		self.loading_set.insert(url.clone());
 		log::info!("Starting load: {} (sample={})", url, is_sample);
 		self.spawn_image_load(url, is_sample, cache_key);
-	}
-
-	fn load_video(&mut self, item: &MediaItem, responses: &mut Vec<Event>) {
-		let url = match &item.full_url {
-			Some(u) => u.clone(),
-			None => return,
-		};
-		if self.cache.contains_key(&url) || self.loading_set.contains(&url) {
-			return;
-		}
-		self.loading_set.insert(url.clone());
-		log::info!("Loading video: {}", url);
-
-		match Player::new(&self.egui_ctx, &url) {
-			Ok(player) => {
-				let player = match self.audio_device.as_mut() {
-					Some(audio_device) => player.with_audio(audio_device).unwrap(),
-					None => player,
-				};
-				self.cache
-					.insert(url.clone(), (LoadedMedia::Video(player), CacheState::Full));
-				self.loading_set.remove(&url);
-				log::info!("Video loaded: {}", url);
-
-				if let Some(ref current) = self.current_item {
-					if current.full_url.as_ref() == Some(&url) {
-						responses.push(Event::View(ViewEvent::MediaReady));
-					}
-				}
-			}
-			Err(e) => {
-				log::error!("Failed to load video {}: {}", url, e);
-				self.loading_set.remove(&url);
-			}
-		}
 	}
 
 	pub fn handle(&mut self, event: &Event) -> ComponentResponse {
@@ -417,11 +380,7 @@ impl MediaCache {
 			}
 
 			for key in to_remove {
-				if let Some((LoadedMedia::Video(mut player), _)) = self.cache.remove(&key) {
-					player.stop();
-				} else {
-					self.cache.remove(&key);
-				}
+				self.cache.remove(&key);
 			}
 		}
 	}

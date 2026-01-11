@@ -3,7 +3,6 @@ use eframe::egui;
 /// Loaded media content
 pub enum LoadedMedia {
 	Image { texture: egui::TextureHandle },
-	Video(egui_video::Player),
 }
 
 /// Breathing timer phases
