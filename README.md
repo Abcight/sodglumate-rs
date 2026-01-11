@@ -46,8 +46,8 @@ Pre-built binaries are available for download on the [Releases](https://github.c
 The newest binaries are as follows:
 | Platform | Mirror |
 |---|---|
-| Windows x86_64 | [Download]() |
-| Linux x86_64 | Unavailable |
+| Windows x86_64 | [Download](https://github.com/Abcight/sodglumate-rs/releases/download/0.1.0/Sodglumate.0.1.0.Win64.x86_64.Bare.zip) |
+| Linux x86_64 | [Download](https://github.com/Abcight/sodglumate-rs/releases/download/0.1.0/Sodglumate.0.1.0.Linux.x86_64.Bare.zip) |
 
 ## Issues & Feedback
 
