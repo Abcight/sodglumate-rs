@@ -7,5 +7,5 @@ setup:
 run:
 	cargo run --release
 
-build-win32:
-	cargo build --release --target i686-pc-windows-gnu
+build-win64:
+	cargo build --release --target x86_64-pc-windows-gnu
