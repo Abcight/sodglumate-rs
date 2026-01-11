@@ -9,3 +9,6 @@ run:
 
 build-win64:
 	cargo build --release --target x86_64-pc-windows-gnu
+
+build-linux64:
+	cargo build --release --target x86_64-unknown-linux-gnu
