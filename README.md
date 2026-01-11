@@ -22,6 +22,21 @@ Designed with mostly single-handed operation in mind.
 
 \* *The breathing timer is intended to be used at your own risk. Sodglumate is not a medical app.*
 
+### Controls
+
+The app is intended to be used with mostly single-handed operation in mind.
+For this reason, most keystrokes are located on the left side of the keyboard.
+
+| Keystroke | Effect |
+|---|---|
+| **Space** | Next Image |
+| **Shift+Space** | Previous Image |
+| **Ctrl+Space** | Skip 10 Images |
+| **WASD** | Pan Image / Scroll |
+| **C** | Toggle Auto-play |
+| **Z** | Seek Video -1s |
+| **X** | Seek Video +1s |
+
 ### Links
 
 This project makes use of e621's API. For more information, see the [e621.net API Documentation](https://e621.net/wiki_pages/help:api).
@@ -31,8 +46,10 @@ This project makes use of e621's API. For more information, see the [e621.net AP
 Pre-built binaries are available for download on the [Releases](https://github.com/abcight/sodglumate-rs/releases) page.
 
 The newest binaries are as follows:
-* [Windows x86_64]()
-* [Linux x86_64]()
+| Platform | Mirror |
+|---|---|
+| Windows x86_64 | [Download]() |
+| Linux x86_64 | Unavailable |
 
 ## Issues & Feedback
 
