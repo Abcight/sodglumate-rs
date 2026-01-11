@@ -82,10 +82,9 @@ impl BreathingOverlay {
 				(BreathingPhase::Release, Duration::from_secs(4))
 			}
 			BreathingPhase::Release => {
-				// 20% -> Inhale, 80% -> Idle
+				// 20% -> Inhale, 80% -> Prepare
 				if rng.random_bool(0.2) {
-					let duration_secs = rng.random_range(5..=12);
-					(BreathingPhase::Inhale, Duration::from_secs(duration_secs))
+					(BreathingPhase::Prepare, Duration::from_secs(3))
 				} else {
 					let duration_secs: u64 = rng.random_range(17..=28);
 					let duration_secs = (duration_secs as f32 * self.idle_multiplier) as u64;

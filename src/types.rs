@@ -6,7 +6,7 @@ pub enum LoadedMedia {
 	Video(egui_video::Player),
 }
 
-/// Breathing exercise phases
+/// Breathing timer phases
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BreathingPhase {
 	Prepare,

@@ -27,7 +27,10 @@ You agree not to use the Application to: (a) View, store, or distribute content 
 *6. Limitation of Liability*
 TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE DEVELOPER BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR DATA, ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF THE APPLICATION. THIS INCLUDES ANY LIABILITY ARISING FROM THE EXPOSURE TO OFFENSIVE OR ADULT CONTENT.
 
-*7. Governing Law*
+*7. Third-Party Content Attribution*
+Content displayed through this Application is sourced from e621.net.  All artwork remains the property of the respective artists. This Application is not affiliated with or endorsed by e621.net or Bad Dragon Enterprises Inc.
+
+*8. Governing Law*
 This Agreement is governed by the laws of the Republic of Poland, without regard to its conflict of laws principles.
 
 Any dispute, controversy, or claim arising out of or relating to this Agreement, or the breach, termination, or invalidity thereof, shall be settled by the common court having jurisdiction over the Developer’s place of residence.

@@ -11,11 +11,14 @@ use crate::types::{BreathingPhase, LoadedMedia, NavDirection};
 use eframe::egui::{self, ScrollArea};
 use std::time::{Duration, Instant};
 
+pub mod text_utils;
+
 /// Content for modal popups
 #[derive(Clone)]
 pub enum ModalContent {
 	None,
 	Hello,
+	BreathingDisclaimer,
 }
 
 pub struct ViewManager {
@@ -33,6 +36,8 @@ pub struct ViewManager {
 
 	// Modal state
 	modal: ModalContent,
+	breathing_disclaimer_accepted: bool,
+	breathing_disclaimer_checked: bool,
 }
 
 impl ViewManager {
@@ -47,6 +52,8 @@ impl ViewManager {
 			user_is_adult: false,
 			user_accepted_tos: false,
 			modal: ModalContent::Hello,
+			breathing_disclaimer_accepted: false,
+			breathing_disclaimer_checked: false,
 		}
 	}
 
@@ -110,7 +117,7 @@ impl ViewManager {
 		self.render_info_overlay(ctx, browser);
 
 		// Modal popup (on top of everything)
-		self.render_modal(ctx);
+		self.render_modal(ctx, &mut events);
 
 		events
 	}
@@ -224,11 +231,16 @@ impl ViewManager {
 				ui.separator();
 
 				let mut breathing_enabled = breathing.is_visible();
-				if ui.checkbox(&mut breathing_enabled, "Breathing").changed() {
-					events.push(Event::Breathing(BreathingEvent::Toggle));
+
+				if ui.checkbox(&mut breathing_enabled, "Breathing").clicked() {
+					if breathing_enabled && !self.breathing_disclaimer_accepted {
+						self.modal = ModalContent::BreathingDisclaimer;
+					} else {
+						events.push(Event::Breathing(BreathingEvent::Toggle));
+					}
 				}
 
-				if breathing.is_visible() {
+				if breathing_enabled {
 					let mut idle_mult = breathing.idle_multiplier();
 					if ui
 						.add(egui::Slider::new(&mut idle_mult, 0.5..=3.0).text("Idle"))
@@ -614,7 +626,7 @@ impl ViewManager {
 	}
 
 	/// Render modal popup overlay
-	fn render_modal(&mut self, ctx: &egui::Context) {
+	fn render_modal(&mut self, ctx: &egui::Context, events: &mut Vec<Event>) {
 		if matches!(self.modal, ModalContent::None) {
 			return;
 		}
@@ -660,57 +672,7 @@ impl ViewManager {
 									ui.with_layout(
 										egui::Layout::top_down(egui::Align::LEFT),
 										|ui| {
-											// Parse text and make *text* sections bold
-											let legal_text = include_str!("legal.txt");
-											let mut job = egui::text::LayoutJob::default();
-											job.wrap = egui::text::TextWrapping {
-												max_width: ui.available_width(),
-												..Default::default()
-											};
-											job.halign = egui::Align::LEFT;
-											let mut in_bold = false;
-											let mut current_text = String::new();
-
-											for ch in legal_text.chars() {
-												if ch == '*' {
-													// Flush current text
-													if !current_text.is_empty() {
-														let format = if in_bold {
-															egui::TextFormat {
-																font_id: egui::FontId::monospace(
-																	14.0,
-																),
-																color: egui::Color32::WHITE,
-																..Default::default()
-															}
-														} else {
-															egui::TextFormat {
-																font_id: egui::FontId::monospace(
-																	14.0,
-																),
-																color: egui::Color32::LIGHT_GRAY,
-																..Default::default()
-															}
-														};
-														job.append(&current_text, 0.0, format);
-														current_text.clear();
-													}
-													in_bold = !in_bold;
-												} else {
-													current_text.push(ch);
-												}
-											}
-											// Flush remaining text
-											if !current_text.is_empty() {
-												let format = egui::TextFormat {
-													font_id: egui::FontId::monospace(14.0),
-													color: egui::Color32::LIGHT_GRAY,
-													..Default::default()
-												};
-												job.append(&current_text, 0.0, format);
-											}
-
-											ui.label(job);
+											text_utils::render_rich_text(ui, include_str!("legal.txt"));
 										},
 									);
 								});
@@ -744,6 +706,65 @@ impl ViewManager {
 							});
 						});
 					}
+					ModalContent::BreathingDisclaimer => {
+						ui.add_space(10.0);
+						ui.heading("Breathing Disclaimer");
+						ui.label("Please read the disclaimer below before using this functionality.");
+						ui.add_space(10.0);
+
+						egui::Frame::none()
+							.fill(egui::Color32::from_gray(40))
+							.inner_margin(12.0)
+							.rounding(4.0)
+							.show(ui, |ui| {
+								ScrollArea::vertical()
+									.scroll_bar_visibility(
+										egui::scroll_area::ScrollBarVisibility::AlwaysVisible,
+									)
+									.max_height(200.0)
+									.show(ui, |ui| {
+										ui.set_min_width(ui.available_width());
+										ui.with_layout(
+											egui::Layout::top_down(egui::Align::LEFT),
+											|ui| {
+												text_utils::render_rich_text(
+													ui,
+													include_str!("breathing.txt"),
+												);
+											},
+										);
+									});
+							});
+
+						ui.add_space(10.0);
+						ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+							ui.checkbox(
+								&mut self.breathing_disclaimer_checked,
+								"I understand the above disclaimer and proceed at my own risk.",
+							);
+						});
+						ui.add_space(10.0);
+
+						ui.horizontal(|ui| {
+							if ui.button("   Decline   ").clicked() {
+								self.modal = ModalContent::None;
+								self.breathing_disclaimer_checked = false;
+							}
+							ui.with_layout(
+								egui::Layout::right_to_left(egui::Align::Center),
+								|ui| {
+									if !self.breathing_disclaimer_checked {
+										ui.disable();
+									}
+									if ui.button("   Accept   ").clicked() {
+										self.breathing_disclaimer_accepted = true;
+										self.modal = ModalContent::None;
+										events.push(Event::Breathing(BreathingEvent::Toggle));
+									}
+								},
+							);
+						});
+					},
 					ModalContent::None => {}
 				});
 			});

@@ -18,7 +18,9 @@ Designed with mostly single-handed operation in mind.
 - Automatic slideshow with configurable timing
 - Auto-panning for images larger than viewport
 - Aggressive prefetching for seamless browsing
-- Built-in "breathing exercise" 😉
+- Built-in "breathing timer" 😉\*
+
+\* *The breathing timer is intended to be used at your own risk. Sodglumate is not a medical app.*
 
 ### Links
 
