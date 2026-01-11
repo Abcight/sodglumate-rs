@@ -1,6 +1,7 @@
 # Sodglumate
-
 A native media browser for [e621](https://e621.net).
+
+<kbd><img src="README.png"></img></kbd>
 
 ## About
 
