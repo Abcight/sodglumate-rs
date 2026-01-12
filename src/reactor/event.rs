@@ -100,6 +100,7 @@ pub enum BreathingEvent {
 #[derive(Clone, Debug)]
 pub enum ViewEvent {
 	MediaReady,
+	RequestBreathingToggle,
 }
 
 #[derive(Clone, Debug)]

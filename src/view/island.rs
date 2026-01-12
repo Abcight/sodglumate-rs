@@ -1,4 +1,4 @@
-use crate::reactor::{BreathingEvent, Event, SettingsEvent, SourceEvent};
+use crate::reactor::{BreathingEvent, Event, SettingsEvent, SourceEvent, ViewEvent};
 use crate::types::NavDirection;
 use eframe::egui;
 use std::time::{Duration, Instant};
@@ -234,7 +234,7 @@ pub static AUTOPLAY_ISLAND: Island = Island {
 pub static BREATHING_ISLAND: Island = Island {
 	rows: &[
 		&[
-			emit("Toggle", || Event::Breathing(BreathingEvent::Toggle)),
+			emit("Toggle", || Event::View(ViewEvent::RequestBreathingToggle)),
 			emit("Low", || {
 				Event::Breathing(BreathingEvent::SetIdleMultiplier { value: 1.8 })
 			}),

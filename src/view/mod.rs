@@ -590,9 +590,25 @@ impl ViewManager {
 
 	/// Render island navigation overlay and handle actions
 	fn render_island_overlay(&mut self, ctx: &egui::Context, events: &mut Vec<Event>) {
+		if !matches!(self.modal, ModalContent::None) {
+			return;
+		}
+
 		if let Some(action) = IslandWidget::new(&mut self.island_ctx).show(ctx) {
 			match action {
-				IslandAction::Emit(factory) => events.push(factory()),
+				IslandAction::Emit(factory) => {
+					let event = factory();
+					// Intercept breathing toggle request to check disclaimer
+					if matches!(event, Event::View(ViewEvent::RequestBreathingToggle)) {
+						if !self.breathing_disclaimer_accepted {
+							self.modal = ModalContent::BreathingDisclaimer;
+						} else {
+							events.push(Event::Breathing(BreathingEvent::Toggle));
+						}
+					} else {
+						events.push(event);
+					}
+				}
 				IslandAction::Push(island) => self.island_ctx.push(island),
 				IslandAction::Pop => {
 					self.island_ctx.pop();
