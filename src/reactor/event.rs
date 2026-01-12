@@ -108,6 +108,8 @@ pub enum SettingsEvent {
 	ToggleAutoPlay,
 	/// Set auto-play delay
 	SetDelay { duration: Duration },
+	/// Adjust auto-play delay by delta
+	AdjustDelay { delta_secs: i64 },
 	/// Timer fired, advance slideshow
 	SlideshowAdvance,
 }

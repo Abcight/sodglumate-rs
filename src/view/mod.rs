@@ -11,7 +11,10 @@ use crate::types::{BreathingPhase, LoadedMedia, NavDirection};
 use eframe::egui::{self, ScrollArea};
 use std::time::{Duration, Instant};
 
+pub mod island;
 pub mod text_utils;
+
+use island::{IslandAction, IslandCtx, IslandWidget, ROOT_ISLAND};
 
 /// Content for modal popups
 #[derive(Clone)]
@@ -38,6 +41,10 @@ pub struct ViewManager {
 	modal: ModalContent,
 	breathing_disclaimer_accepted: bool,
 	breathing_disclaimer_checked: bool,
+
+	// Island navigation state
+	island_ctx: IslandCtx,
+	prev_shift_held: bool,
 }
 
 impl ViewManager {
@@ -54,6 +61,8 @@ impl ViewManager {
 			modal: ModalContent::Hello,
 			breathing_disclaimer_accepted: false,
 			breathing_disclaimer_checked: false,
+			island_ctx: IslandCtx::new(),
+			prev_shift_held: false,
 		}
 	}
 
@@ -116,6 +125,9 @@ impl ViewManager {
 		self.render_breathing_pulse(ctx, breathing);
 		self.render_info_overlay(ctx, browser);
 
+		// Island navigation overlay
+		self.render_island_overlay(ctx, &mut events);
+
 		// Modal popup (on top of everything)
 		self.render_modal(ctx, &mut events);
 
@@ -128,8 +140,21 @@ impl ViewManager {
 		_media: &mut MediaCache,
 		events: &mut Vec<Event>,
 	) {
+		// Detect shift press/release edges for island activation
+		let shift_held = ctx.input(|i| i.modifiers.shift);
+		if shift_held && !self.prev_shift_held {
+			self.island_ctx.activate(&ROOT_ISLAND, 2);
+		} else if !shift_held && self.prev_shift_held {
+			self.island_ctx.deactivate();
+		}
+		self.prev_shift_held = shift_held;
+
+		// Island overlay consumes all input when active or just closed
+		if self.island_ctx.active || self.island_ctx.in_cooldown() {
+			return;
+		}
+
 		let space_pressed = ctx.input(|i| i.key_pressed(egui::Key::Space));
-		let shift_pressed = ctx.input(|i| i.modifiers.shift);
 		let ctrl_pressed = ctx.input(|i| i.modifiers.ctrl);
 		let c_pressed = ctx.input(|i| i.key_pressed(egui::Key::C));
 
@@ -140,8 +165,6 @@ impl ViewManager {
 		if space_pressed {
 			if ctrl_pressed {
 				events.push(Event::Source(SourceEvent::Navigate(NavDirection::Skip(10))));
-			} else if shift_pressed {
-				events.push(Event::Source(SourceEvent::Navigate(NavDirection::Prev)));
 			} else {
 				events.push(Event::Source(SourceEvent::Navigate(NavDirection::Next)));
 			}
@@ -272,8 +295,14 @@ impl ViewManager {
 		let pan_cycle = self.auto_pan_cycle_duration;
 		let load_time = self.image_load_time;
 		let mut user_panned = self.user_has_panned;
+		let island_active = self.island_ctx.active || self.island_ctx.in_cooldown();
 
 		let handle_scroll_input = |ui: &mut egui::Ui, input_active: &mut bool| {
+			// Don't process scroll input when island overlay is active or just closed
+			if island_active {
+				return;
+			}
+
 			let mut scroll_delta = egui::Vec2::ZERO;
 			let speed = 20.0;
 
@@ -559,6 +588,19 @@ impl ViewManager {
 		ui.painter().galley(rect.min, galley, color);
 	}
 
+	/// Render island navigation overlay and handle actions
+	fn render_island_overlay(&mut self, ctx: &egui::Context, events: &mut Vec<Event>) {
+		if let Some(action) = IslandWidget::new(&mut self.island_ctx).show(ctx) {
+			match action {
+				IslandAction::Emit(factory) => events.push(factory()),
+				IslandAction::Push(island) => self.island_ctx.push(island),
+				IslandAction::Pop => {
+					self.island_ctx.pop();
+				}
+			}
+		}
+	}
+
 	/// Render modal popup overlay
 	fn render_modal(&mut self, ctx: &egui::Context, events: &mut Vec<Event>) {
 		if matches!(self.modal, ModalContent::None) {
@@ -606,7 +648,7 @@ impl ViewManager {
 									ui.with_layout(
 										egui::Layout::top_down(egui::Align::LEFT),
 										|ui| {
-											text_utils::render_rich_text(ui, include_str!("legal.txt"));
+											text_utils::render_rich_text(ui, include_str!("resources/legal.txt"));
 										},
 									);
 								});
@@ -663,7 +705,7 @@ impl ViewManager {
 											|ui| {
 												text_utils::render_rich_text(
 													ui,
-													include_str!("breathing.txt"),
+													include_str!("resources/breathing.txt"),
 												);
 											},
 										);

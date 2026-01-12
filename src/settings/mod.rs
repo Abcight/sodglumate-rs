@@ -34,6 +34,12 @@ impl SettingsManager {
 				self.auto_play_delay = *duration;
 				ComponentResponse::none()
 			}
+			Event::Settings(SettingsEvent::AdjustDelay { delta_secs }) => {
+				let current_secs = self.auto_play_delay.as_secs() as i64;
+				let new_secs = (current_secs + delta_secs).clamp(1, 60);
+				self.auto_play_delay = Duration::from_secs(new_secs as u64);
+				ComponentResponse::none()
+			}
 			Event::Settings(SettingsEvent::SlideshowAdvance) => {
 				self.slideshow_scheduled = false;
 				if self.auto_play {
