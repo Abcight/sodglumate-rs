@@ -1,5 +1,5 @@
 use crate::reactor::{BreathingEvent, Event, SettingsEvent, SourceEvent, ViewEvent};
-use crate::types::NavDirection;
+use crate::types::{BreathingStyle, NavDirection};
 use eframe::egui;
 use std::time::{Duration, Instant};
 
@@ -235,11 +235,21 @@ pub static BREATHING_ISLAND: Island = Island {
 	rows: &[
 		&[
 			emit("Toggle", || Event::View(ViewEvent::RequestBreathingToggle)),
-			emit("Low", || {
-				Event::Breathing(BreathingEvent::SetIdleMultiplier { value: 1.8 })
+			emit("Classic", || {
+				Event::Breathing(BreathingEvent::SetStyle {
+					style: BreathingStyle::Classic,
+				})
+			}),
+			emit("Immersive", || {
+				Event::Breathing(BreathingEvent::SetStyle {
+					style: BreathingStyle::Immersive,
+				})
 			}),
 		],
 		&[
+			emit("Low", || {
+				Event::Breathing(BreathingEvent::SetIdleMultiplier { value: 1.8 })
+			}),
 			emit("Medium", || {
 				Event::Breathing(BreathingEvent::SetIdleMultiplier { value: 1.0 })
 			}),

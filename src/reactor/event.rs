@@ -1,5 +1,5 @@
 use crate::api::Post;
-use crate::types::NavDirection;
+use crate::types::{BreathingStyle, NavDirection};
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
@@ -95,6 +95,7 @@ pub enum BreathingEvent {
 	Toggle,
 	PhaseComplete,
 	SetIdleMultiplier { value: f32 },
+	SetStyle { style: BreathingStyle },
 }
 
 #[derive(Clone, Debug)]

@@ -1,5 +1,5 @@
 use crate::reactor::{BreathingEvent, ComponentResponse, Event};
-use crate::types::BreathingPhase;
+use crate::types::{BreathingPhase, BreathingStyle};
 use rand::Rng;
 use std::time::{Duration, Instant};
 
@@ -13,6 +13,7 @@ pub struct BreathingOverlay {
 	state: BreathingState,
 	show_overlay: bool,
 	idle_multiplier: f32,
+	style: BreathingStyle,
 }
 
 impl BreathingOverlay {
@@ -25,6 +26,7 @@ impl BreathingOverlay {
 			},
 			show_overlay: false,
 			idle_multiplier: 1.0,
+			style: BreathingStyle::default(),
 		}
 	}
 
@@ -58,6 +60,10 @@ impl BreathingOverlay {
 			}
 			Event::Breathing(BreathingEvent::SetIdleMultiplier { value }) => {
 				self.idle_multiplier = *value;
+				ComponentResponse::none()
+			}
+			Event::Breathing(BreathingEvent::SetStyle { style }) => {
+				self.style = *style;
 				ComponentResponse::none()
 			}
 			_ => ComponentResponse::none(),
@@ -109,6 +115,10 @@ impl BreathingOverlay {
 
 	pub fn idle_multiplier(&self) -> f32 {
 		self.idle_multiplier
+	}
+
+	pub fn style(&self) -> BreathingStyle {
+		self.style
 	}
 }
 

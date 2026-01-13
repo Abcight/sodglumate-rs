@@ -7,7 +7,7 @@ use crate::reactor::{
 	ViewEvent,
 };
 use crate::settings::SettingsManager;
-use crate::types::{BreathingPhase, LoadedMedia, NavDirection};
+use crate::types::{BreathingPhase, BreathingStyle, LoadedMedia, NavDirection};
 use eframe::egui::{self, ScrollArea};
 use std::time::{Duration, Instant};
 
@@ -121,8 +121,15 @@ impl ViewManager {
 		self.render_central_panel(ctx, browser, media, gateway, !modal_active);
 
 		// Overlays
-		self.render_breathing_overlay(ctx, breathing);
-		self.render_breathing_pulse(ctx, breathing);
+		match breathing.style() {
+			BreathingStyle::Classic => {
+				self.render_breathing_overlay(ctx, breathing);
+				self.render_breathing_pulse(ctx, breathing);
+			}
+			BreathingStyle::Immersive => {
+				self.render_immersive_breathing_overlay(ctx, breathing);
+			}
+		}
 		self.render_info_overlay(ctx, browser);
 
 		// Island navigation overlay
@@ -248,6 +255,38 @@ impl ViewManager {
 							value: idle_mult,
 						}));
 					}
+
+					let current_style = breathing.style();
+					let style_label = match current_style {
+						BreathingStyle::Classic => "Classic",
+						BreathingStyle::Immersive => "Immersive",
+					};
+					egui::ComboBox::from_id_salt("breathing_style")
+						.selected_text(style_label)
+						.show_ui(ui, |ui| {
+							if ui
+								.selectable_label(
+									current_style == BreathingStyle::Classic,
+									"Classic",
+								)
+								.clicked()
+							{
+								events.push(Event::Breathing(BreathingEvent::SetStyle {
+									style: BreathingStyle::Classic,
+								}));
+							}
+							if ui
+								.selectable_label(
+									current_style == BreathingStyle::Immersive,
+									"Immersive",
+								)
+								.clicked()
+							{
+								events.push(Event::Breathing(BreathingEvent::SetStyle {
+									style: BreathingStyle::Immersive,
+								}));
+							}
+						});
 				}
 
 				ui.separator();
@@ -486,6 +525,129 @@ impl ViewManager {
 		}
 	}
 
+	fn render_immersive_breathing_overlay(
+		&self,
+		ctx: &egui::Context,
+		breathing: &BreathingOverlay,
+	) {
+		if !breathing.is_visible() {
+			return;
+		}
+
+		let state = breathing.state();
+		let elapsed = state.start_time.elapsed().as_secs_f32();
+		let duration = state.duration.as_secs_f32();
+		let progress = (elapsed / duration).clamp(0.0, 1.0);
+
+		let screen_rect = ctx.screen_rect();
+		let screen_width = screen_rect.width();
+		let screen_height = screen_rect.height();
+
+		// Calculate visual properties based on phase
+		let (text, text_color, bar_fill, bar_bg_alpha, text_alpha) = match state.phase {
+			BreathingPhase::Prepare => {
+				// Text fades in fast, background fades in gradually
+				let text_alpha = (progress * 4.0).min(1.0);
+				let bg_alpha = progress * 0.4;
+				("PREPARE", egui::Color32::RED, 0.0, bg_alpha, text_alpha)
+			}
+			BreathingPhase::Inhale => {
+				// Fill bar from 0% to 100%
+				("INHALE", egui::Color32::YELLOW, progress, 0.4, 1.0)
+			}
+			BreathingPhase::Hold => {
+				// Bar stays full
+				("HOLD", egui::Color32::YELLOW, 1.0, 0.4, 1.0)
+			}
+			BreathingPhase::Release => {
+				// Empty the bar, fade out background and text
+				let fade = 1.0 - progress;
+				let bg_alpha = 0.4 * fade;
+				("RELEASE", egui::Color32::GREEN, fade, bg_alpha, fade)
+			}
+			BreathingPhase::Idle => {
+				// Fade everything out quickly
+				let alpha = (1.0 - progress * 2.0).max(0.0);
+				("", egui::Color32::TRANSPARENT, 0.0, 0.0, alpha)
+			}
+		};
+
+		// Skip rendering if completely transparent
+		if text_alpha <= 0.001 && bar_bg_alpha <= 0.001 {
+			return;
+		}
+
+		ctx.request_repaint();
+
+		// Render semi-transparent background overlay
+		egui::Area::new(egui::Id::new("immersive_breathing_bg"))
+			.fixed_pos(screen_rect.min)
+			.order(egui::Order::Foreground)
+			.interactable(false)
+			.show(ctx, |ui| {
+				let bg_alpha = (bar_bg_alpha * text_alpha * 180.0) as u8;
+				ui.painter().rect_filled(
+					screen_rect,
+					0.0,
+					egui::Color32::from_rgba_unmultiplied(0, 0, 0, bg_alpha),
+				);
+			});
+
+		// Render progress bar just below the centered text
+		let font_size = screen_height * 0.08;
+		let bar_height = screen_height * 0.015;
+		let text_center_y = screen_height / 2.0;
+		let bar_y = text_center_y + (font_size * 0.6); // Small gap below text
+		let bar_width = screen_width * 0.4;
+		let bar_x = (screen_width - bar_width) / 2.0;
+		let bar_rect =
+			egui::Rect::from_min_size(egui::pos2(bar_x, bar_y), egui::vec2(bar_width, bar_height));
+
+		if bar_bg_alpha > 0.001 {
+			egui::Area::new(egui::Id::new("immersive_breathing_bar"))
+				.fixed_pos(bar_rect.min)
+				.order(egui::Order::Foreground)
+				.interactable(false)
+				.show(ctx, |ui| {
+					let painter = ui.painter();
+					let rounding = bar_height * 0.5;
+
+					// Background track
+					let bg_alpha = (text_alpha * 100.0) as u8;
+					painter.rect_filled(
+						bar_rect,
+						rounding,
+						egui::Color32::from_rgba_unmultiplied(40, 40, 50, bg_alpha),
+					);
+
+					// Filled portion
+					if bar_fill > 0.001 {
+						let fill_width = bar_rect.width() * bar_fill;
+						let fill_rect = egui::Rect::from_min_size(
+							bar_rect.min,
+							egui::vec2(fill_width, bar_height),
+						);
+						let fill_color = text_color.gamma_multiply(text_alpha);
+						painter.rect_filled(fill_rect, rounding, fill_color);
+					}
+				});
+		}
+
+		// Render centered text
+		if !text.is_empty() {
+			egui::Area::new(egui::Id::new("immersive_breathing_text"))
+				.anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+				.order(egui::Order::Foreground)
+				.interactable(false)
+				.show(ctx, |ui| {
+					let font_id = egui::FontId::proportional(font_size);
+					let display_color = text_color.gamma_multiply(text_alpha);
+					let stroke_width = (font_size * 0.03).max(1.0);
+					Self::draw_outlined_text(ui, text, font_id, display_color, stroke_width);
+				});
+		}
+	}
+
 	fn render_info_overlay(&self, ctx: &egui::Context, browser: &ContentBrowser) {
 		if browser.is_empty() {
 			return;
@@ -565,7 +727,6 @@ impl ViewManager {
 			.layout_no_wrap(text.to_string(), font_id.clone(), color);
 		let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
 
-		let shadow_color = egui::Color32::BLACK;
 		let offsets = [
 			egui::vec2(-stroke_width, -stroke_width),
 			egui::vec2(0.0, -stroke_width),
@@ -576,6 +737,11 @@ impl ViewManager {
 			egui::vec2(0.0, stroke_width),
 			egui::vec2(stroke_width, stroke_width),
 		];
+
+		let num_passes = offsets.len() as f32;
+		let base_alpha = color.a() as f32;
+		let per_pass_alpha = (base_alpha / num_passes).max(1.0) as u8;
+		let shadow_color = egui::Color32::from_rgba_unmultiplied(0, 0, 0, per_pass_alpha);
 
 		for offset in offsets {
 			let shadow_galley =
