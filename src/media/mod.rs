@@ -2,7 +2,8 @@ use crate::reactor::{ComponentResponse, Event, MediaEvent, ViewEvent};
 use crate::types::LoadedMedia;
 use eframe::egui;
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use indexmap::IndexMap;
+use std::collections::{HashSet, VecDeque};
 use tokio::sync::mpsc;
 
 pub enum MediaMessage {
@@ -31,8 +32,9 @@ pub enum CacheState {
 
 pub struct MediaCache {
 	// Cache keyed by full_url (or sample_url if no full)
-	cache: HashMap<String, (LoadedMedia, CacheState)>,
+	cache: IndexMap<String, (LoadedMedia, CacheState)>,
 	loading_set: HashSet<String>,
+	pending_set: HashSet<String>,
 
 	// Current item being displayed
 	current_item: Option<MediaItem>,
@@ -52,8 +54,9 @@ impl MediaCache {
 		log::info!("Initializing MediaCache with tiered loading");
 		let (sender, receiver) = mpsc::channel(100);
 		Self {
-			cache: HashMap::new(),
+			cache: IndexMap::new(),
 			loading_set: HashSet::new(),
+			pending_set: HashSet::new(),
 			current_item: None,
 			pending_samples: VecDeque::new(),
 			pending_full: VecDeque::new(),
@@ -136,14 +139,26 @@ impl MediaCache {
 	}
 
 	fn process_loading_queue(&mut self) {
-		// Current item sample
+		const MAX_CONCURRENT: usize = 5;
+
+		// Always try to load both sample and full for the currently displayed item
 		if let Some(ref current) = self.current_item.clone() {
-			let cache_key = self.get_cache_key(&current);
-			let has_sample = self.cache.contains_key(&cache_key);
-			let has_full = self
+			let cache_key = self.get_cache_key(current);
+			let (has_sample, has_full) = self
 				.cache
 				.get(&cache_key)
-				.map(|(_, state)| matches!(state, CacheState::Full))
+				.map(|(_, state)| {
+					(
+						true,
+						matches!(state, CacheState::Full), // Full implies sample content too
+					)
+				})
+				.unwrap_or((false, false));
+
+			let sample_loading = current
+				.sample_url
+				.as_ref()
+				.map(|u| self.loading_set.contains(u))
 				.unwrap_or(false);
 			let full_loading = current
 				.full_url
@@ -151,26 +166,24 @@ impl MediaCache {
 				.map(|u| self.loading_set.contains(u))
 				.unwrap_or(false);
 
+			// Kick off sample if we can
 			if !has_sample && !current.is_video {
-				// Load sample first
 				if let Some(ref sample_url) = current.sample_url {
-					if !self.loading_set.contains(sample_url) && self.loading_set.len() < 5 {
+					if !sample_loading && self.loading_set.len() < MAX_CONCURRENT {
 						self.start_image_load(sample_url.clone(), true, cache_key.clone());
-						return; // Give sample priority
 					}
 				} else if let Some(ref full_url) = current.full_url {
-					// No sample, load full directly
-					if !self.loading_set.contains(full_url) && self.loading_set.len() < 5 {
+					// No sample available; treat full as the first-tier load
+					if !full_loading && self.loading_set.len() < MAX_CONCURRENT {
 						self.start_image_load(full_url.clone(), false, cache_key.clone());
-						return;
 					}
 				}
 			}
 
-			// Current item full (after sample is loaded or loading)
-			if has_sample && !has_full && !full_loading {
+			// Kick off full regardless of sample state for the current item
+			if !has_full {
 				if let Some(ref full_url) = current.full_url {
-					if self.loading_set.len() < 5 {
+					if !full_loading && self.loading_set.len() < MAX_CONCURRENT {
 						self.start_image_load(full_url.clone(), false, cache_key.clone());
 					}
 				}
@@ -308,6 +321,12 @@ impl MediaCache {
 			}
 			Event::Media(MediaEvent::Prefetch { urls }) => {
 				log::debug!("Prefetch requested for {} items", urls.len());
+
+				// Clear old pending items and reset
+				self.pending_samples.clear();
+				self.pending_full.clear();
+				self.pending_set.clear();
+
 				for (sample_url, full_url, is_video) in urls {
 					let item = MediaItem {
 						sample_url: sample_url.clone(),
@@ -315,7 +334,12 @@ impl MediaCache {
 						is_video: *is_video,
 					};
 					let cache_key = self.get_cache_key(&item);
-					if !self.cache.contains_key(&cache_key) {
+
+					if !self.cache.contains_key(&cache_key)
+						&& !self.loading_set.contains(&cache_key)
+						&& !self.pending_set.contains(&cache_key)
+					{
+						self.pending_set.insert(cache_key);
 						self.pending_samples.push_back(item);
 					}
 				}
@@ -380,7 +404,7 @@ impl MediaCache {
 			}
 
 			for key in to_remove {
-				self.cache.remove(&key);
+				self.cache.shift_remove(&key);
 			}
 		}
 	}
