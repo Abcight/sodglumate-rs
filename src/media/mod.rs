@@ -4,7 +4,12 @@ use eframe::egui;
 
 use indexmap::IndexMap;
 use std::collections::{HashSet, VecDeque};
+use std::sync::Arc;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::mpsc;
+
+/// Number of background workers for general loading (samples + prefetch)
+const NUM_WORKERS: usize = 4;
 
 pub enum MediaMessage {
 	ImageLoaded {
@@ -13,6 +18,13 @@ pub enum MediaMessage {
 		full_url: String, // Key for cache lookup
 		result: Result<egui::ColorImage, String>,
 	},
+}
+
+/// A unit of work sent to a loading worker
+struct LoadWork {
+	url: String,
+	is_sample: bool,
+	cache_key: String,
 }
 
 /// Represents a media item's loading state
@@ -43,7 +55,11 @@ pub struct MediaCache {
 	pending_samples: VecDeque<MediaItem>, // Breadth-first samples
 	pending_full: VecDeque<MediaItem>,    // Depth-first full versions
 
-	sender: mpsc::Sender<MediaMessage>,
+	// Worker channels
+	priority_tx: mpsc::Sender<LoadWork>, // Current item full-res → priority worker
+	work_tx: mpsc::Sender<LoadWork>,     // Everything else → general workers
+
+	// Result channel
 	receiver: mpsc::Receiver<MediaMessage>,
 
 	egui_ctx: egui::Context,
@@ -51,8 +67,24 @@ pub struct MediaCache {
 
 impl MediaCache {
 	pub fn new(ctx: &egui::Context) -> Self {
-		log::info!("Initializing MediaCache with tiered loading");
-		let (sender, receiver) = mpsc::channel(100);
+		log::info!(
+			"Initializing MediaCache with {} workers + 1 priority worker",
+			NUM_WORKERS
+		);
+
+		let (result_tx, result_rx) = mpsc::channel(100);
+
+		// Priority channel: dedicated worker for current item full-res
+		let (priority_tx, priority_rx) = mpsc::channel::<LoadWork>(8);
+		Self::spawn_worker("priority", priority_rx, result_tx.clone(), ctx.clone());
+
+		// General channel: NUM_WORKERS workers for samples + prefetch
+		let (work_tx, work_rx) = mpsc::channel::<LoadWork>(128);
+		let shared_rx = Arc::new(AsyncMutex::new(work_rx));
+		for i in 0..NUM_WORKERS {
+			Self::spawn_shared_worker(i, shared_rx.clone(), result_tx.clone(), ctx.clone());
+		}
+
 		Self {
 			cache: IndexMap::new(),
 			loading_set: HashSet::new(),
@@ -60,11 +92,103 @@ impl MediaCache {
 			current_item: None,
 			pending_samples: VecDeque::new(),
 			pending_full: VecDeque::new(),
-			sender,
-			receiver,
-
+			priority_tx,
+			work_tx,
+			receiver: result_rx,
 			egui_ctx: ctx.clone(),
 		}
+	}
+
+	/// Spawn a dedicated worker with its own receiver
+	fn spawn_worker(
+		name: &'static str,
+		rx: mpsc::Receiver<LoadWork>,
+		result_tx: mpsc::Sender<MediaMessage>,
+		ctx: egui::Context,
+	) {
+		let rx = Arc::new(AsyncMutex::new(rx));
+		tokio::spawn(async move {
+			log::info!("Media worker [{}] started", name);
+			loop {
+				let work = {
+					let mut rx = rx.lock().await;
+					rx.recv().await
+				};
+				let Some(work) = work else {
+					log::info!("Media worker [{}] shutting down", name);
+					break;
+				};
+				log::info!(
+					"Worker [{}] loading: {} (sample={})",
+					name,
+					work.url,
+					work.is_sample
+				);
+				let result = Self::load_image(&work.url).await;
+				let _ = result_tx
+					.send(MediaMessage::ImageLoaded {
+						url: work.url,
+						is_sample: work.is_sample,
+						full_url: work.cache_key,
+						result: result.map_err(|e| e.to_string()),
+					})
+					.await;
+				ctx.request_repaint();
+			}
+		});
+	}
+
+	/// Spawn a worker that shares a receiver with other workers
+	fn spawn_shared_worker(
+		id: usize,
+		rx: Arc<AsyncMutex<mpsc::Receiver<LoadWork>>>,
+		result_tx: mpsc::Sender<MediaMessage>,
+		ctx: egui::Context,
+	) {
+		tokio::spawn(async move {
+			log::info!("Media worker [general-{}] started", id);
+			loop {
+				let work = {
+					let mut rx = rx.lock().await;
+					rx.recv().await
+				};
+				let Some(work) = work else {
+					log::info!("Media worker [general-{}] shutting down", id);
+					break;
+				};
+				log::info!(
+					"Worker [general-{}] loading: {} (sample={})",
+					id,
+					work.url,
+					work.is_sample
+				);
+				let result = Self::load_image(&work.url).await;
+				let _ = result_tx
+					.send(MediaMessage::ImageLoaded {
+						url: work.url,
+						is_sample: work.is_sample,
+						full_url: work.cache_key,
+						result: result.map_err(|e| e.to_string()),
+					})
+					.await;
+				ctx.request_repaint();
+			}
+		});
+	}
+
+	/// Shared image loading logic used by all workers
+	async fn load_image(url: &str) -> Result<egui::ColorImage, anyhow::Error> {
+		let resp = reqwest::get(url).await?;
+		if !resp.status().is_success() {
+			anyhow::bail!("HTTP Status: {}", resp.status());
+		}
+		let bytes = resp.bytes().await?;
+		let img = image::load_from_memory(&bytes)?;
+		let size = [img.width() as usize, img.height() as usize];
+		let img_buffer = img.to_rgba8();
+		let pixels = img_buffer.as_flat_samples();
+		let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
+		Ok(color_image)
 	}
 
 	pub fn poll(&mut self) -> ComponentResponse {
@@ -139,8 +263,6 @@ impl MediaCache {
 	}
 
 	fn process_loading_queue(&mut self) {
-		const MAX_CONCURRENT: usize = 5;
-
 		// Always try to load both sample and full for the currently displayed item
 		if let Some(ref current) = self.current_item.clone() {
 			let cache_key = self.get_cache_key(current);
@@ -166,112 +288,65 @@ impl MediaCache {
 				.map(|u| self.loading_set.contains(u))
 				.unwrap_or(false);
 
-			// Kick off sample if we can
+			// Kick off sample via general workers
 			if !has_sample && !current.is_video {
 				if let Some(ref sample_url) = current.sample_url {
 					if !sample_loading {
-						self.start_image_load(sample_url.clone(), true, cache_key.clone());
+						self.enqueue_load(sample_url.clone(), true, cache_key.clone(), false);
 					}
 				} else if let Some(ref full_url) = current.full_url {
 					// No sample available; treat full as the first-tier load
 					if !full_loading {
-						self.start_image_load(full_url.clone(), false, cache_key.clone());
+						self.enqueue_load(full_url.clone(), false, cache_key.clone(), true);
 					}
 				}
 			}
 
-			// Kick off full regardless of sample state for the current item
+			// Kick off full-res via priority worker
 			if !has_full {
 				if let Some(ref full_url) = current.full_url {
 					if !full_loading {
-						self.start_image_load(full_url.clone(), false, cache_key.clone());
+						self.enqueue_load(full_url.clone(), false, cache_key.clone(), true);
 					}
 				}
 			}
 		}
 
-		// Prioritize samples, then upgrade to full in batches
-		const BATCH_SIZE: usize = 3;
-		let mut loaded_this_cycle = 0;
-
-		while self.loading_set.len() < 5 {
-			// Load samples until pending_samples has few items
-			if !self.pending_samples.is_empty() {
-				if let Some(item) = self.pending_samples.pop_front() {
-					let cache_key = self.get_cache_key(&item);
-					if self.cache.contains_key(&cache_key) {
-						continue; // Already cached
-					}
-
-					if let Some(ref sample_url) = item.sample_url {
-						if !self.loading_set.contains(sample_url) {
-							self.start_image_load(sample_url.clone(), true, cache_key);
-							self.pending_full.push_back(item);
-							loaded_this_cycle += 1;
-						}
-					} else if let Some(ref full_url) = item.full_url {
-						if !self.loading_set.contains(full_url) {
-							self.start_image_load(full_url.clone(), false, cache_key);
-							loaded_this_cycle += 1;
-						}
-					}
-					if loaded_this_cycle >= BATCH_SIZE && !self.pending_full.is_empty() {
-						loaded_this_cycle = 0;
-						// Load up to BATCH_SIZE full versions
-						for _ in 0..BATCH_SIZE {
-							if self.loading_set.len() >= MAX_CONCURRENT {
-								break;
-							}
-							if let Some(full_item) = self.pending_full.pop_front() {
-								let full_cache_key = self.get_cache_key(&full_item);
-								let has_full = self
-									.cache
-									.get(&full_cache_key)
-									.map(|(_, state)| matches!(state, CacheState::Full))
-									.unwrap_or(false);
-								if has_full {
-									continue;
-								}
-								if let Some(ref full_url) = full_item.full_url {
-									if !self.loading_set.contains(full_url) {
-										self.start_image_load(
-											full_url.clone(),
-											false,
-											full_cache_key,
-										);
-									}
-								}
-							} else {
-								break;
-							}
-						}
-					}
-					continue;
-				}
+		// Drain pending samples into general workers
+		while let Some(item) = self.pending_samples.pop_front() {
+			let cache_key = self.get_cache_key(&item);
+			if self.cache.contains_key(&cache_key) {
+				continue;
 			}
 
-			// When samples exhausted, drain remaining full versions
-			if self.pending_samples.is_empty() {
-				if let Some(item) = self.pending_full.pop_front() {
-					let cache_key = self.get_cache_key(&item);
-					let has_full = self
-						.cache
-						.get(&cache_key)
-						.map(|(_, state)| matches!(state, CacheState::Full))
-						.unwrap_or(false);
-					if has_full {
-						continue;
-					}
-					if let Some(ref full_url) = item.full_url {
-						if !self.loading_set.contains(full_url) {
-							self.start_image_load(full_url.clone(), false, cache_key);
-						}
-					}
-					continue;
+			if let Some(ref sample_url) = item.sample_url {
+				if !self.loading_set.contains(sample_url) {
+					self.enqueue_load(sample_url.clone(), true, cache_key, false);
+					self.pending_full.push_back(item);
+				}
+			} else if let Some(ref full_url) = item.full_url {
+				if !self.loading_set.contains(full_url) {
+					self.enqueue_load(full_url.clone(), false, cache_key, false);
 				}
 			}
+		}
 
-			break;
+		// Drain pending full versions into general workers
+		while let Some(item) = self.pending_full.pop_front() {
+			let cache_key = self.get_cache_key(&item);
+			let has_full = self
+				.cache
+				.get(&cache_key)
+				.map(|(_, state)| matches!(state, CacheState::Full))
+				.unwrap_or(false);
+			if has_full {
+				continue;
+			}
+			if let Some(ref full_url) = item.full_url {
+				if !self.loading_set.contains(full_url) {
+					self.enqueue_load(full_url.clone(), false, cache_key, false);
+				}
+			}
 		}
 	}
 
@@ -282,13 +357,35 @@ impl MediaCache {
 			.unwrap_or_default()
 	}
 
-	fn start_image_load(&mut self, url: String, is_sample: bool, cache_key: String) {
+	/// Enqueue a load to either the priority or general work channel.
+	fn enqueue_load(&mut self, url: String, is_sample: bool, cache_key: String, priority: bool) {
 		if self.loading_set.contains(&url) {
 			return;
 		}
-		self.loading_set.insert(url.clone());
-		log::info!("Starting load: {} (sample={})", url, is_sample);
-		self.spawn_image_load(url, is_sample, cache_key);
+		let work = LoadWork {
+			url: url.clone(),
+			is_sample,
+			cache_key,
+		};
+		let tx = if priority {
+			&self.priority_tx
+		} else {
+			&self.work_tx
+		};
+		match tx.try_send(work) {
+			Ok(()) => {
+				self.loading_set.insert(url.clone());
+				log::info!(
+					"Enqueued load: {} (sample={}, priority={})",
+					url,
+					is_sample,
+					priority
+				);
+			}
+			Err(e) => {
+				log::warn!("Work queue full, deferring: {} ({})", url, e);
+			}
+		}
 	}
 
 	pub fn handle(&mut self, event: &Event) -> ComponentResponse {
@@ -352,39 +449,6 @@ impl MediaCache {
 		} else {
 			ComponentResponse::emit_many(responses)
 		}
-	}
-
-	fn spawn_image_load(&self, url: String, is_sample: bool, cache_key: String) {
-		log::debug!("Spawning async image load: {}", url);
-		let sender = self.sender.clone();
-		let ctx = self.egui_ctx.clone();
-
-		tokio::spawn(async move {
-			let result = async {
-				let resp = reqwest::get(&url).await?;
-				if !resp.status().is_success() {
-					anyhow::bail!("HTTP Status: {}", resp.status());
-				}
-				let bytes = resp.bytes().await?;
-				let img = image::load_from_memory(&bytes)?;
-				let size = [img.width() as usize, img.height() as usize];
-				let img_buffer = img.to_rgba8();
-				let pixels = img_buffer.as_flat_samples();
-				let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
-				Ok::<_, anyhow::Error>(color_image)
-			}
-			.await;
-
-			let _ = sender
-				.send(MediaMessage::ImageLoaded {
-					url,
-					is_sample,
-					full_url: cache_key,
-					result: result.map_err(|e| e.to_string()),
-				})
-				.await;
-			ctx.request_repaint();
-		});
 	}
 
 	fn prune_cache(&mut self) {
