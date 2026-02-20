@@ -169,12 +169,12 @@ impl MediaCache {
 			// Kick off sample if we can
 			if !has_sample && !current.is_video {
 				if let Some(ref sample_url) = current.sample_url {
-					if !sample_loading && self.loading_set.len() < MAX_CONCURRENT {
+					if !sample_loading {
 						self.start_image_load(sample_url.clone(), true, cache_key.clone());
 					}
 				} else if let Some(ref full_url) = current.full_url {
 					// No sample available; treat full as the first-tier load
-					if !full_loading && self.loading_set.len() < MAX_CONCURRENT {
+					if !full_loading {
 						self.start_image_load(full_url.clone(), false, cache_key.clone());
 					}
 				}
@@ -183,7 +183,7 @@ impl MediaCache {
 			// Kick off full regardless of sample state for the current item
 			if !has_full {
 				if let Some(ref full_url) = current.full_url {
-					if !full_loading && self.loading_set.len() < MAX_CONCURRENT {
+					if !full_loading {
 						self.start_image_load(full_url.clone(), false, cache_key.clone());
 					}
 				}
@@ -219,7 +219,7 @@ impl MediaCache {
 						loaded_this_cycle = 0;
 						// Load up to BATCH_SIZE full versions
 						for _ in 0..BATCH_SIZE {
-							if self.loading_set.len() >= 5 {
+							if self.loading_set.len() >= MAX_CONCURRENT {
 								break;
 							}
 							if let Some(full_item) = self.pending_full.pop_front() {
