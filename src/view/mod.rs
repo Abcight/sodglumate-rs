@@ -50,6 +50,10 @@ pub struct ViewManager {
 	// Beat debug state
 	beat_intensity: f32,
 	last_beat_time: Instant,
+
+	// Beat pulse settings
+	beat_pulse_enabled: bool,
+	beat_pulse_scale: f32,
 }
 
 impl ViewManager {
@@ -70,6 +74,8 @@ impl ViewManager {
 			prev_shift_held: false,
 			beat_intensity: 0.0,
 			last_beat_time: Instant::now(),
+			beat_pulse_enabled: false,
+			beat_pulse_scale: 0.03,
 		}
 	}
 
@@ -353,6 +359,13 @@ impl ViewManager {
 							.size(10.0),
 					);
 				}
+
+				ui.checkbox(&mut self.beat_pulse_enabled, "Pulse");
+				if self.beat_pulse_enabled {
+					ui.add(
+						egui::Slider::new(&mut self.beat_pulse_scale, 0.01..=0.15).text("Scale"),
+					);
+				}
 			});
 		});
 	}
@@ -431,13 +444,24 @@ impl ViewManager {
 					let width_ratio = available_size.x / img_size.x;
 					let height_ratio = available_size.y / img_size.y;
 					let scale = width_ratio.max(height_ratio);
-					let display_size = img_size * scale;
+					let base_display_size = img_size * scale;
+					let mut display_size = base_display_size;
+
+					// Apply beat pulse if enabled
+					let pulse_offset = if self.beat_pulse_enabled && self.beat_intensity > 0.01 {
+						let pulse = 1.0 + self.beat_intensity * self.beat_pulse_scale;
+						display_size = base_display_size * pulse;
+						ctx.request_repaint();
+						(display_size - base_display_size) * 0.5
+					} else {
+						egui::Vec2::ZERO
+					};
 
 					let mut scroll_area = egui::ScrollArea::both().scroll_bar_visibility(
 						egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
 					);
 
-					// Auto
+					// Auto-pan
 					if !user_panned {
 						let elapsed = load_time.elapsed().as_secs_f32();
 						let cycle = (elapsed * 2.0 * std::f32::consts::PI) / pan_cycle;
@@ -445,10 +469,12 @@ impl ViewManager {
 
 						let overflow = display_size - available_size;
 						if overflow.x > 0.0 {
-							scroll_area = scroll_area.horizontal_scroll_offset(overflow.x * factor);
+							scroll_area = scroll_area
+								.horizontal_scroll_offset(overflow.x * factor + pulse_offset.x);
 						}
 						if overflow.y > 0.0 {
-							scroll_area = scroll_area.vertical_scroll_offset(overflow.y * factor);
+							scroll_area = scroll_area
+								.vertical_scroll_offset(overflow.y * factor + pulse_offset.y);
 						}
 						ctx.request_repaint();
 					}
@@ -812,8 +838,15 @@ impl ViewManager {
 	/// Render debug beat dot, pulses on beat detection
 	fn render_beat_debug(&mut self, ctx: &egui::Context, _beat: &SystemBeat) {
 		let elapsed = self.last_beat_time.elapsed().as_secs_f32();
+		let attack_dur = 0.04; // 40ms smooth rise
 		let decay_rate = 4.6;
-		self.beat_intensity = (1.0_f32).min((-decay_rate * elapsed).exp());
+
+		self.beat_intensity = if elapsed < attack_dur {
+			let t = elapsed / attack_dur;
+			t * t * (3.0 - 2.0 * t)
+		} else {
+			(-decay_rate * (elapsed - attack_dur)).exp()
+		};
 
 		if self.beat_intensity < 0.01 {
 			return;
