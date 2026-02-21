@@ -3,12 +3,13 @@ pub mod queue;
 pub mod scheduler;
 
 pub use event::{
-	BreathingEvent, BrowserEvent, ComponentResponse, Event, GatewayEvent, MediaEvent,
+	BeatEvent, BreathingEvent, BrowserEvent, ComponentResponse, Event, GatewayEvent, MediaEvent,
 	SettingsEvent, SourceEvent, ViewEvent,
 };
 pub use queue::EventQueue;
 pub use scheduler::Scheduler;
 
+use crate::beat::SystemBeat;
 use crate::breathing::BreathingOverlay;
 use crate::browser::ContentBrowser;
 use crate::gateway::BooruGateway;
@@ -27,6 +28,7 @@ pub struct Reactor {
 	pub breathing: BreathingOverlay,
 	pub view: ViewManager,
 	pub settings: SettingsManager,
+	pub beat: SystemBeat,
 }
 
 impl Reactor {
@@ -41,6 +43,7 @@ impl Reactor {
 			breathing: BreathingOverlay::new(),
 			view: ViewManager::new(),
 			settings: SettingsManager::new(),
+			beat: SystemBeat::new(),
 		};
 
 		// Initialize all components
@@ -66,8 +69,10 @@ impl Reactor {
 		// Poll async components
 		let gateway_response = self.gateway.poll();
 		let media_response = self.media.poll();
+		let beat_response = self.beat.poll();
 		self.process_response(gateway_response);
 		self.process_response(media_response);
+		self.process_response(beat_response);
 
 		// Process event queue until empty
 		let mut iterations = 0;
@@ -89,9 +94,17 @@ impl Reactor {
 			let browser = &self.browser;
 			let breathing = &self.breathing;
 			let settings = &self.settings;
+			let beat = &self.beat;
 
-			self.view
-				.render(ctx, gateway, browser, &mut self.media, breathing, settings)
+			self.view.render(
+				ctx,
+				gateway,
+				browser,
+				&mut self.media,
+				breathing,
+				settings,
+				beat,
+			)
 		};
 
 		// Process any events from rendering immediately
@@ -111,6 +124,7 @@ impl Reactor {
 			Event::Breathing(_) => self.breathing.handle(event),
 			Event::View(_) => self.view.handle(event),
 			Event::Settings(_) => self.settings.handle(event),
+			Event::Beat(_) => self.beat.handle(event),
 		}
 	}
 

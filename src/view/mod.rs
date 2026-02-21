@@ -1,10 +1,11 @@
+use crate::beat::SystemBeat;
 use crate::breathing::BreathingOverlay;
 use crate::browser::ContentBrowser;
 use crate::gateway::BooruGateway;
 use crate::media::MediaCache;
 use crate::reactor::{
-	BreathingEvent, ComponentResponse, Event, GatewayEvent, MediaEvent, SettingsEvent, SourceEvent,
-	ViewEvent,
+	BeatEvent, BreathingEvent, ComponentResponse, Event, GatewayEvent, MediaEvent, SettingsEvent,
+	SourceEvent, ViewEvent,
 };
 use crate::settings::SettingsManager;
 use crate::types::{BreathingPhase, BreathingStyle, LoadedMedia, NavDirection};
@@ -45,6 +46,10 @@ pub struct ViewManager {
 	// Island navigation state
 	island_ctx: IslandCtx,
 	prev_shift_held: bool,
+
+	// Beat debug state
+	beat_intensity: f32,
+	last_beat_time: Instant,
 }
 
 impl ViewManager {
@@ -63,6 +68,8 @@ impl ViewManager {
 			breathing_disclaimer_checked: false,
 			island_ctx: IslandCtx::new(),
 			prev_shift_held: false,
+			beat_intensity: 0.0,
+			last_beat_time: Instant::now(),
 		}
 	}
 
@@ -72,6 +79,11 @@ impl ViewManager {
 				self.image_load_time = Instant::now();
 				self.user_has_panned = false;
 				self.error_msg = None;
+				ComponentResponse::none()
+			}
+			Event::View(ViewEvent::BeatPulse) => {
+				self.beat_intensity = 1.0;
+				self.last_beat_time = Instant::now();
 				ComponentResponse::none()
 			}
 			Event::Gateway(GatewayEvent::SearchError { message }) => {
@@ -95,6 +107,7 @@ impl ViewManager {
 		media: &mut MediaCache,
 		breathing: &BreathingOverlay,
 		settings: &SettingsManager,
+		beat: &SystemBeat,
 	) -> Vec<Event> {
 		let mut events = Vec::new();
 		let modal_active = !matches!(self.modal, ModalContent::None);
@@ -113,6 +126,7 @@ impl ViewManager {
 			gateway,
 			settings,
 			breathing,
+			beat,
 			&mut events,
 			!modal_active,
 		);
@@ -131,6 +145,9 @@ impl ViewManager {
 			}
 		}
 		self.render_info_overlay(ctx, browser);
+
+		// Beat debug dot
+		self.render_beat_debug(ctx, beat);
 
 		// Island navigation overlay
 		self.render_island_overlay(ctx, &mut events);
@@ -184,6 +201,7 @@ impl ViewManager {
 		_gateway: &BooruGateway,
 		settings: &SettingsManager,
 		breathing: &BreathingOverlay,
+		beat: &SystemBeat,
 		events: &mut Vec<Event>,
 		enabled: bool,
 	) {
@@ -297,6 +315,43 @@ impl ViewManager {
 					.changed()
 				{
 					self.auto_pan_cycle_duration = pan_speed;
+				}
+
+				ui.separator();
+
+				ui.label("Audio:");
+				let selected_label = beat.selected_device_label();
+				egui::ComboBox::from_id_salt("audio_device")
+					.selected_text(selected_label)
+					.show_ui(ui, |ui| {
+						if ui
+							.selectable_label(beat.selected_device().is_none(), "Default")
+							.clicked()
+						{
+							events.push(Event::Beat(BeatEvent::SetDevice { name: None }));
+						}
+						for device_name in beat.device_names() {
+							let is_selected =
+								beat.selected_device().as_deref() == Some(device_name.as_str());
+							if ui.selectable_label(is_selected, device_name).clicked() {
+								events.push(Event::Beat(BeatEvent::SetDevice {
+									name: Some(device_name.clone()),
+								}));
+							}
+						}
+					});
+				if beat.is_active() {
+					ui.label(
+						egui::RichText::new("●")
+							.color(egui::Color32::GREEN)
+							.size(10.0),
+					);
+				} else {
+					ui.label(
+						egui::RichText::new("●")
+							.color(egui::Color32::RED)
+							.size(10.0),
+					);
 				}
 			});
 		});
@@ -752,6 +807,49 @@ impl ViewManager {
 		}
 
 		ui.painter().galley(rect.min, galley, color);
+	}
+
+	/// Render debug beat dot, pulses on beat detection
+	fn render_beat_debug(&mut self, ctx: &egui::Context, _beat: &SystemBeat) {
+		let elapsed = self.last_beat_time.elapsed().as_secs_f32();
+		let decay_rate = 4.6;
+		self.beat_intensity = (1.0_f32).min((-decay_rate * elapsed).exp());
+
+		if self.beat_intensity < 0.01 {
+			return;
+		}
+
+		ctx.request_repaint();
+
+		let screen_rect = ctx.screen_rect();
+		let margin = 20.0;
+		let base_radius = 6.0;
+		let bounce = 10.0;
+		let radius = base_radius + self.beat_intensity * bounce;
+
+		let center = egui::pos2(
+			screen_rect.right() - margin - base_radius,
+			screen_rect.bottom() - margin - base_radius,
+		);
+
+		let alpha = (self.beat_intensity * 255.0) as u8;
+		let color = egui::Color32::from_rgba_unmultiplied(0, 220, 255, alpha);
+
+		egui::Area::new(egui::Id::new("beat_debug_dot"))
+			.fixed_pos(center)
+			.order(egui::Order::Foreground)
+			.interactable(false)
+			.show(ctx, |ui| {
+				ui.painter().circle_filled(center, radius, color);
+				// Outer glow ring
+				let glow_alpha = (self.beat_intensity * 100.0) as u8;
+				let glow_color = egui::Color32::from_rgba_unmultiplied(0, 220, 255, glow_alpha);
+				ui.painter().circle_stroke(
+					center,
+					radius + 3.0,
+					egui::Stroke::new(2.0, glow_color),
+				);
+			});
 	}
 
 	/// Render island navigation overlay and handle actions

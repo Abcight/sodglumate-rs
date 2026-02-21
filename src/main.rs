@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 
 mod api;
+mod beat;
 mod breathing;
 mod browser;
 mod gateway;

@@ -11,6 +11,7 @@ pub enum Event {
 	Breathing(BreathingEvent),
 	View(ViewEvent),
 	Settings(SettingsEvent),
+	Beat(BeatEvent),
 }
 
 impl Event {
@@ -24,6 +25,7 @@ impl Event {
 			Event::Media(_) => Priority::Normal,
 			Event::Breathing(_) => Priority::Low,
 			Event::View(_) => Priority::Normal,
+			Event::Beat(_) => Priority::Low,
 			Event::Settings(SettingsEvent::SlideshowAdvance) => Priority::Normal,
 			Event::Settings(_) => Priority::Normal,
 		}
@@ -102,6 +104,7 @@ pub enum BreathingEvent {
 pub enum ViewEvent {
 	MediaReady,
 	RequestBreathingToggle,
+	BeatPulse,
 }
 
 #[derive(Clone, Debug)]
@@ -114,6 +117,14 @@ pub enum SettingsEvent {
 	AdjustDelay { delta_secs: i64 },
 	/// Timer fired, advance slideshow
 	SlideshowAdvance,
+}
+
+#[derive(Clone, Debug)]
+pub enum BeatEvent {
+	/// A beat was detected
+	Beat,
+	/// Switch capture device (None = system default)
+	SetDevice { name: Option<String> },
 }
 
 /// Response from component.handle()
