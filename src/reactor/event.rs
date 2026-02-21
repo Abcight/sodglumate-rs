@@ -104,7 +104,7 @@ pub enum BreathingEvent {
 pub enum ViewEvent {
 	MediaReady,
 	RequestBreathingToggle,
-	BeatPulse,
+	BeatPulse { scale: f32 },
 }
 
 #[derive(Clone, Debug)]
@@ -122,7 +122,7 @@ pub enum SettingsEvent {
 #[derive(Clone, Debug)]
 pub enum BeatEvent {
 	/// A beat was detected
-	Beat,
+	Beat { scale: f32 },
 	/// Switch capture device (None = system default)
 	SetDevice { name: Option<String> },
 }

@@ -173,7 +173,7 @@ impl SystemBeat {
 			self.sample_buffer.extend(samples);
 		}
 
-		let mut beat_detected = false;
+		let mut beat_detected = None;
 
 		// Process complete windows
 		while self.sample_buffer.len() >= WINDOW_SIZE {
@@ -195,16 +195,17 @@ impl SystemBeat {
 				&& avg_energy > 1e-8 // Avoid triggering on silence
 				&& self.last_beat.elapsed().as_millis() > BEAT_COOLDOWN_MS
 			{
-				beat_detected = true;
+				let scale = (energy / (avg_energy * BEAT_THRESHOLD)).min(3.0);
+				beat_detected = Some(scale);
 				self.last_beat = Instant::now();
 			}
 		}
 
-		if beat_detected {
-			log::debug!("Beat detected!");
+		if let Some(scale) = beat_detected {
+			log::debug!("Beat detected! scale={:.2}", scale);
 			ComponentResponse::emit_many(vec![
-				Event::Beat(BeatEvent::Beat),
-				Event::View(ViewEvent::BeatPulse),
+				Event::Beat(BeatEvent::Beat { scale }),
+				Event::View(ViewEvent::BeatPulse { scale }),
 			])
 		} else {
 			ComponentResponse::none()
