@@ -248,6 +248,14 @@ impl ViewManager {
 					events.push(Event::Settings(SettingsEvent::ToggleAutoPlay));
 				}
 
+				let mut cap_by_breathing = settings.cap_by_breathing();
+				if ui
+					.checkbox(&mut cap_by_breathing, "Sync with Breathing")
+					.changed()
+				{
+					events.push(Event::Settings(SettingsEvent::ToggleCapByBreathing));
+				}
+
 				if settings.auto_play() {
 					let mut seconds = settings.auto_play_delay().as_secs_f32();
 					if ui

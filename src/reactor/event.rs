@@ -1,5 +1,5 @@
 use crate::api::Post;
-use crate::types::{BreathingStyle, NavDirection};
+use crate::types::{BreathingPhase, BreathingStyle, NavDirection};
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
@@ -98,6 +98,7 @@ pub enum BreathingEvent {
 	PhaseComplete,
 	SetIdleMultiplier { value: f32 },
 	SetStyle { style: BreathingStyle },
+	PhaseStarted(BreathingPhase),
 }
 
 #[derive(Clone, Debug)]
@@ -112,11 +113,16 @@ pub enum SettingsEvent {
 	/// Toggle auto-play
 	ToggleAutoPlay,
 	/// Set auto-play delay
-	SetDelay { duration: Duration },
+	SetDelay {
+		duration: Duration,
+	},
 	/// Adjust auto-play delay by delta
-	AdjustDelay { delta_secs: i64 },
+	AdjustDelay {
+		delta_secs: i64,
+	},
 	/// Timer fired, advance slideshow
 	SlideshowAdvance,
+	ToggleCapByBreathing,
 }
 
 #[derive(Clone, Debug)]

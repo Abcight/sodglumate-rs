@@ -31,10 +31,14 @@ impl BreathingOverlay {
 	}
 
 	pub fn init(&self) -> ComponentResponse {
-		ComponentResponse::schedule(
+		let mut response = ComponentResponse::emit(Event::Breathing(BreathingEvent::PhaseStarted(
+			self.state.phase,
+		)));
+		response.scheduled.push((
 			Event::Breathing(BreathingEvent::PhaseComplete),
 			self.state.duration,
-		)
+		));
+		response
 	}
 
 	pub fn handle(&mut self, event: &Event) -> ComponentResponse {
@@ -52,11 +56,13 @@ impl BreathingOverlay {
 					duration,
 				};
 
-				// Schedule next phase completion
-				ComponentResponse::schedule(
-					Event::Breathing(BreathingEvent::PhaseComplete),
-					duration,
-				)
+				let mut response = ComponentResponse::emit(Event::Breathing(
+					BreathingEvent::PhaseStarted(next_phase),
+				));
+				response
+					.scheduled
+					.push((Event::Breathing(BreathingEvent::PhaseComplete), duration));
+				response
 			}
 			Event::Breathing(BreathingEvent::SetIdleMultiplier { value }) => {
 				self.idle_multiplier = *value;

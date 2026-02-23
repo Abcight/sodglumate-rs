@@ -7,6 +7,9 @@ setup:
 run:
 	cargo run --release
 
+debug:
+	cargo run
+
 build-win64:
 	cargo build --release --target x86_64-pc-windows-gnu
 

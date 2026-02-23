@@ -116,16 +116,28 @@ impl Reactor {
 	}
 
 	fn route(&mut self, event: &Event) -> ComponentResponse {
+		let mut response;
+
 		match event {
-			Event::Source(e) => self.handle_source(e),
-			Event::Gateway(_) => self.gateway.handle(event),
-			Event::Browser(_) => self.browser.handle(event),
-			Event::Media(_) => self.media.handle(event),
-			Event::Breathing(_) => self.breathing.handle(event),
-			Event::View(_) => self.view.handle(event),
-			Event::Settings(_) => self.settings.handle(event),
-			Event::Beat(_) => self.beat.handle(event),
+			Event::Source(e) => response = self.handle_source(e),
+			Event::Gateway(_) => response = self.gateway.handle(event),
+			Event::Browser(_) => response = self.browser.handle(event),
+			Event::Media(_) => response = self.media.handle(event),
+			Event::View(_) => response = self.view.handle(event),
+			Event::Beat(_) => response = self.beat.handle(event),
+			Event::Breathing(b) => {
+				response = self.breathing.handle(event);
+				if let BreathingEvent::PhaseStarted(_) = b {
+					// Route PhaseStarted to settings as well
+					let settings_res = self.settings.handle(event, &self.breathing);
+					response.events.extend(settings_res.events);
+					response.scheduled.extend(settings_res.scheduled);
+				}
+			}
+			Event::Settings(_) => response = self.settings.handle(event, &self.breathing),
 		}
+
+		response
 	}
 
 	fn handle_source(&mut self, event: &SourceEvent) -> ComponentResponse {
