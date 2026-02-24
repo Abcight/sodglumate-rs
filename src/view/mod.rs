@@ -672,18 +672,28 @@ impl ViewManager {
 								let center_rect =
 									egui::Rect::from_min_size(rect.min, available_size);
 
-								// Determine main image width
-								let mut main_w = available_size.x;
-								if let Some(post) = browser.get_post_relative(0) {
-									if let Some(crate::types::LoadedMedia::Image { texture }) =
-										media.get_media_by_post(post)
-									{
-										let size = texture.size_vec2();
-										let scale = (available_size.x / size.x)
-											.min(available_size.y / size.y);
-										main_w = size.x * scale;
+								let get_fitted_width = |offset: isize| -> f32 {
+									if let Some(post) = browser.get_post_relative(offset) {
+										if let Some(crate::types::LoadedMedia::Image { texture }) =
+											media.get_media_by_post(post)
+										{
+											let size = texture.size_vec2();
+											let scale = (available_size.x / size.x)
+												.min(available_size.y / size.y);
+											return size.x * scale;
+										}
 									}
-								}
+									available_size.x
+								};
+
+								let virtual_center = -self.gallery_anim_offset;
+								let vc_floor = virtual_center.floor() as isize;
+								let vc_ceil = virtual_center.ceil() as isize;
+								let vc_fract = virtual_center - vc_floor as f32;
+
+								let w1 = get_fitted_width(vc_floor);
+								let w2 = get_fitted_width(vc_ceil);
+								let main_w = w1 + (w2 - w1) * vc_fract;
 
 								let gutter_w = ((available_size.x - main_w) / 2.0).max(0.0);
 								let left_gutter = egui::Rect::from_min_size(
@@ -786,8 +796,9 @@ impl ViewManager {
 												egui::Rect::from_min_max(clip_min, clip_max);
 
 											// apply pulse to the current focus
-											let current_pulse =
-												if offset == 0 { pulse } else { 1.0 };
+											let dist_from_center = v.abs().min(1.0);
+											let current_pulse = 1.0
+												+ (pulse - 1.0) * (1.0 - 0.5 * dist_from_center);
 											let final_size = interpolated_size * current_pulse;
 
 											let final_rect = egui::Rect::from_center_size(
