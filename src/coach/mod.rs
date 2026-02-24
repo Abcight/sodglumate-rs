@@ -242,6 +242,7 @@ impl CoachWorker {
 						let mut generated_tokens = 0;
 						let mut index_pos = 0;
 						let mut current_tokens = prompt_tokens.clone();
+						let mut output_tokens = Vec::new();
 
 						while generated_tokens < max_new_tokens {
 							log::info!("Coach generating token {}", generated_tokens);
@@ -270,10 +271,11 @@ impl CoachWorker {
 
 									index_pos += seq_len;
 									current_tokens = vec![next_token];
+									output_tokens.push(next_token);
 									generated_tokens += 1;
 
-									if let Some(s) = tok.decode(&[next_token], true).ok() {
-										response_text.push_str(&s);
+									if let Some(s) = tok.decode(&output_tokens, true).ok() {
+										response_text = s;
 										if response_text.ends_with("<|im_end|>") {
 											log::info!(
 												"Coach generated full response: {}",
