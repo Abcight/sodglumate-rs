@@ -34,18 +34,21 @@ pub struct SystemBeat {
 }
 
 impl SystemBeat {
-	pub fn new() -> Self {
+	pub fn new(selected_device: Option<String>) -> Self {
 		let (sample_tx, sample_rx) = mpsc::channel();
 
 		let device_names = Self::enumerate_devices();
-		let stream = Self::start_stream_default(&sample_tx);
+		let stream = match selected_device.as_deref() {
+			Some(name) => Self::start_stream_named(name, &sample_tx),
+			None => Self::start_stream_default(&sample_tx),
+		};
 
 		Self {
 			sample_rx,
 			sample_tx,
 			stream,
 			device_names,
-			selected_device: None,
+			selected_device,
 			sample_buffer: Vec::with_capacity(WINDOW_SIZE * 2),
 			energy_history: vec![0.0; HISTORY_LEN],
 			history_index: 0,
@@ -260,6 +263,6 @@ impl SystemBeat {
 
 impl Default for SystemBeat {
 	fn default() -> Self {
-		Self::new()
+		Self::new(None)
 	}
 }

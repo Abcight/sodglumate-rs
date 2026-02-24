@@ -34,16 +34,32 @@ pub struct Reactor {
 impl Reactor {
 	pub fn new(ctx: &egui::Context) -> Self {
 		log::info!("Initializing all components");
+		let settings = crate::config::load_settings();
+
 		let mut reactor = Self {
 			queue: EventQueue::new(),
 			scheduler: Scheduler::new(),
 			gateway: BooruGateway::new(),
 			browser: ContentBrowser::new(),
 			media: MediaCache::new(ctx),
-			breathing: BreathingOverlay::new(),
-			view: ViewManager::new(),
-			settings: SettingsManager::new(),
-			beat: SystemBeat::new(),
+			breathing: BreathingOverlay::new(
+				false, // Breathing always starts off
+				settings.breathing_idle_multiplier,
+				settings.breathing_style,
+			),
+			view: ViewManager::new(
+				settings.search_query,
+				settings.search_page_input,
+				settings.auto_pan_cycle_duration,
+				settings.beat_pulse_enabled,
+				settings.beat_pulse_scale,
+			),
+			settings: SettingsManager::new(
+				settings.auto_play,
+				std::time::Duration::from_secs_f32(settings.auto_play_delay_secs),
+				settings.cap_by_breathing,
+			),
+			beat: SystemBeat::new(settings.selected_audio_device),
 		};
 
 		// Initialize all components
@@ -121,7 +137,14 @@ impl Reactor {
 		match event {
 			Event::Source(e) => response = self.handle_source(e),
 			Event::Gateway(_) => response = self.gateway.handle(event),
-			Event::Browser(_) => response = self.browser.handle(event),
+			Event::Browser(b) => {
+				response = self.browser.handle(event);
+				if let BrowserEvent::Navigate { .. } = b {
+					let settings_res = self.settings.handle(event, &self.breathing);
+					response.events.extend(settings_res.events);
+					response.scheduled.extend(settings_res.scheduled);
+				}
+			}
 			Event::Media(_) => response = self.media.handle(event),
 			Event::View(_) => response = self.view.handle(event),
 			Event::Beat(_) => response = self.beat.handle(event),
@@ -163,5 +186,22 @@ impl Reactor {
 impl eframe::App for Reactor {
 	fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
 		self.tick(ctx);
+	}
+
+	fn save(&mut self, _storage: &mut dyn eframe::Storage) {
+		let saved = crate::config::SavedSettings {
+			search_query: self.view.search_query.clone(),
+			search_page_input: self.view.search_page_input.clone(),
+			auto_play: self.settings.auto_play(),
+			auto_play_delay_secs: self.settings.auto_play_delay().as_secs_f32(),
+			cap_by_breathing: self.settings.cap_by_breathing(),
+			breathing_idle_multiplier: self.breathing.idle_multiplier(),
+			breathing_style: self.breathing.style(),
+			auto_pan_cycle_duration: self.view.auto_pan_cycle_duration,
+			selected_audio_device: self.beat.selected_device().clone(),
+			beat_pulse_enabled: self.view.beat_pulse_enabled,
+			beat_pulse_scale: self.view.beat_pulse_scale,
+		};
+		crate::config::save_settings(&saved);
 	}
 }

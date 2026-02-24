@@ -29,11 +29,11 @@ pub struct ViewManager {
 	// Display state
 	image_load_time: Instant,
 	user_has_panned: bool,
-	auto_pan_cycle_duration: f32,
+	pub(crate) auto_pan_cycle_duration: f32,
 
 	// UI state
-	search_query: String,
-	search_page_input: String,
+	pub(crate) search_query: String,
+	pub(crate) search_page_input: String,
 	error_msg: Option<String>,
 	user_is_adult: bool,
 	user_accepted_tos: bool,
@@ -53,18 +53,24 @@ pub struct ViewManager {
 	last_beat_scale: f32,
 
 	// Beat pulse settings
-	beat_pulse_enabled: bool,
-	beat_pulse_scale: f32,
+	pub(crate) beat_pulse_enabled: bool,
+	pub(crate) beat_pulse_scale: f32,
 }
 
 impl ViewManager {
-	pub fn new() -> Self {
+	pub fn new(
+		search_query: String,
+		search_page_input: String,
+		auto_pan_cycle_duration: f32,
+		beat_pulse_enabled: bool,
+		beat_pulse_scale: f32,
+	) -> Self {
 		Self {
 			image_load_time: Instant::now(),
 			user_has_panned: false,
-			auto_pan_cycle_duration: 10.0,
-			search_query: "~gay ~male solo abs wolf order:score".to_owned(),
-			search_page_input: "1".to_owned(),
+			auto_pan_cycle_duration,
+			search_query,
+			search_page_input,
 			error_msg: None,
 			user_is_adult: false,
 			user_accepted_tos: false,
@@ -76,8 +82,8 @@ impl ViewManager {
 			beat_intensity: 0.0,
 			last_beat_time: Instant::now(),
 			last_beat_scale: 1.0,
-			beat_pulse_enabled: false,
-			beat_pulse_scale: 0.03,
+			beat_pulse_enabled,
+			beat_pulse_scale,
 		}
 	}
 
@@ -1072,6 +1078,12 @@ impl ViewManager {
 
 impl Default for ViewManager {
 	fn default() -> Self {
-		Self::new()
+		Self::new(
+			"~gay ~male solo abs wolf order:score".to_owned(),
+			"1".to_owned(),
+			10.0,
+			false,
+			0.03,
+		)
 	}
 }

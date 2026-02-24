@@ -17,16 +17,16 @@ pub struct BreathingOverlay {
 }
 
 impl BreathingOverlay {
-	pub fn new() -> Self {
+	pub fn new(show_overlay: bool, idle_multiplier: f32, style: BreathingStyle) -> Self {
 		Self {
 			state: BreathingState {
 				phase: BreathingPhase::Prepare,
 				start_time: Instant::now(),
 				duration: Duration::from_secs(5),
 			},
-			show_overlay: false,
-			idle_multiplier: 1.0,
-			style: BreathingStyle::default(),
+			show_overlay,
+			idle_multiplier,
+			style,
 		}
 	}
 
@@ -130,6 +130,6 @@ impl BreathingOverlay {
 
 impl Default for BreathingOverlay {
 	fn default() -> Self {
-		Self::new()
+		Self::new(false, 1.0, BreathingStyle::default())
 	}
 }

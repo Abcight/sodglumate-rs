@@ -1,22 +1,24 @@
 use crate::breathing::BreathingOverlay;
 use crate::reactor::{BreathingEvent, BrowserEvent, ComponentResponse, Event, SettingsEvent};
 use crate::types::{BreathingPhase, NavDirection};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub struct SettingsManager {
 	auto_play: bool,
 	auto_play_delay: Duration,
 	slideshow_scheduled: bool,
 	cap_by_breathing: bool,
+	last_advance_time: Instant,
 }
 
 impl SettingsManager {
-	pub fn new() -> Self {
+	pub fn new(auto_play: bool, auto_play_delay: Duration, cap_by_breathing: bool) -> Self {
 		Self {
-			auto_play: false,
-			auto_play_delay: Duration::from_secs(16),
+			auto_play,
+			auto_play_delay,
 			slideshow_scheduled: false,
-			cap_by_breathing: false,
+			cap_by_breathing,
+			last_advance_time: Instant::now(),
 		}
 	}
 
@@ -24,12 +26,15 @@ impl SettingsManager {
 		match event {
 			Event::Settings(SettingsEvent::ToggleAutoPlay) => {
 				self.auto_play = !self.auto_play;
-				if self.auto_play && !self.slideshow_scheduled {
-					self.slideshow_scheduled = true;
-					return ComponentResponse::schedule(
-						Event::Settings(SettingsEvent::SlideshowAdvance),
-						self.auto_play_delay,
-					);
+				if self.auto_play {
+					self.last_advance_time = Instant::now();
+					if !self.slideshow_scheduled {
+						self.slideshow_scheduled = true;
+						return ComponentResponse::schedule(
+							Event::Settings(SettingsEvent::SlideshowAdvance),
+							self.auto_play_delay,
+						);
+					}
 				}
 				ComponentResponse::none()
 			}
@@ -51,16 +56,22 @@ impl SettingsManager {
 				if self.auto_play && self.cap_by_breathing && breathing.is_visible() {
 					if matches!(phase, BreathingPhase::Prepare | BreathingPhase::Release) {
 						// Immediately trigger advance in these phases
+						return ComponentResponse::emit(Event::Browser(BrowserEvent::Navigate {
+							direction: NavDirection::Next,
+						}));
+					}
+				}
+				ComponentResponse::none()
+			}
+			Event::Browser(BrowserEvent::Navigate { .. }) => {
+				if self.auto_play {
+					self.last_advance_time = Instant::now();
+					if !self.slideshow_scheduled {
 						self.slideshow_scheduled = true;
-						let mut response =
-							ComponentResponse::emit(Event::Browser(BrowserEvent::Navigate {
-								direction: NavDirection::Next,
-							}));
-						response.scheduled.push((
+						return ComponentResponse::schedule(
 							Event::Settings(SettingsEvent::SlideshowAdvance),
 							self.auto_play_delay,
-						));
-						return response;
+						);
 					}
 				}
 				ComponentResponse::none()
@@ -68,6 +79,16 @@ impl SettingsManager {
 			Event::Settings(SettingsEvent::SlideshowAdvance) => {
 				self.slideshow_scheduled = false;
 				if self.auto_play {
+					let elapsed = self.last_advance_time.elapsed();
+					if elapsed < self.auto_play_delay {
+						// We haven't waited long enough since the last manual navigation or advance
+						self.slideshow_scheduled = true;
+						return ComponentResponse::schedule(
+							Event::Settings(SettingsEvent::SlideshowAdvance),
+							self.auto_play_delay - elapsed,
+						);
+					}
+
 					// Check breathing cap
 					if self.cap_by_breathing && breathing.is_visible() {
 						let phase = breathing.state().phase;
@@ -83,6 +104,7 @@ impl SettingsManager {
 
 					// Navigate to next and schedule another advance
 					self.slideshow_scheduled = true;
+					self.last_advance_time = Instant::now();
 					let mut response =
 						ComponentResponse::emit(Event::Browser(BrowserEvent::Navigate {
 							direction: NavDirection::Next,
@@ -115,6 +137,6 @@ impl SettingsManager {
 
 impl Default for SettingsManager {
 	fn default() -> Self {
-		Self::new()
+		Self::new(false, Duration::from_secs(16), false)
 	}
 }

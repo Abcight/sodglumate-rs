@@ -5,8 +5,10 @@ pub enum LoadedMedia {
 	Image { texture: egui::TextureHandle },
 }
 
+use serde::{Deserialize, Serialize};
+
 /// Breathing overlay display style
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum BreathingStyle {
 	#[default]
 	Immersive, // Full progress bar overlay
