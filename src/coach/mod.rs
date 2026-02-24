@@ -240,9 +240,9 @@ impl CoachWorker {
 						let mut response_text = String::new();
 						let max_new_tokens = 100;
 						let mut generated_tokens = 0;
+						let mut output_tokens = Vec::new();
 						let mut index_pos = 0;
 						let mut current_tokens = prompt_tokens.clone();
-						let mut output_tokens = Vec::new();
 
 						while generated_tokens < max_new_tokens {
 							log::info!("Coach generating token {}", generated_tokens);
@@ -267,6 +267,13 @@ impl CoachWorker {
 											max_prob = p;
 											next_token = i as u32;
 										}
+									}
+
+									if max_prob == f32::NEG_INFINITY {
+										log::error!(
+											"Model generated NaNs! Hardware acceleration/correct CPU features may be required."
+										);
+										break;
 									}
 
 									index_pos += seq_len;
