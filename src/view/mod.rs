@@ -224,7 +224,7 @@ impl ViewManager {
 			if !enabled {
 				ui.disable();
 			}
-			ui.horizontal(|ui| {
+			ui.horizontal_wrapped(|ui| {
 				ui.label("Query:");
 				let response = ui.text_edit_singleline(&mut self.search_query);
 
@@ -244,9 +244,8 @@ impl ViewManager {
 						page,
 					}));
 				}
-			});
+				ui.separator();
 
-			ui.horizontal(|ui| {
 				ui.label("Quick settings:");
 
 				let mut auto_play = settings.auto_play();
