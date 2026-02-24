@@ -21,6 +21,7 @@ pub enum ImageFillMode {
 	#[default]
 	Cover,
 	Fit,
+	FitToGallery,
 }
 
 /// Breathing timer phases

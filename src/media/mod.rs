@@ -1,3 +1,4 @@
+use crate::api::Post;
 use crate::reactor::{ComponentResponse, Event, MediaEvent, ViewEvent};
 use crate::types::LoadedMedia;
 use eframe::egui;
@@ -8,7 +9,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::sync::mpsc;
 
-/// Number of background workers for general loading (samples + prefetch)
+/// Number of background workers for general loading
 const NUM_WORKERS: usize = 4;
 
 pub enum MediaMessage {
@@ -474,9 +475,20 @@ impl MediaCache {
 	}
 
 	/// Get the best available media for the current item
-	pub fn get_current_media(&mut self) -> Option<&mut LoadedMedia> {
+	pub fn get_current_media(&self) -> Option<&LoadedMedia> {
 		let cache_key = self.current_item.as_ref().map(|i| self.get_cache_key(i))?;
-		self.cache.get_mut(&cache_key).map(|(media, _)| media)
+		self.cache.get(&cache_key).map(|(media, _)| media)
+	}
+
+	pub fn get_media_by_post(&self, post: &Post) -> Option<&LoadedMedia> {
+		let full_url = post.file.url.as_deref();
+		let sample_url = if post.sample.has {
+			post.sample.url.as_deref()
+		} else {
+			None
+		};
+		let cache_key = full_url.or(sample_url).unwrap_or_default();
+		self.cache.get(cache_key).map(|(media, _)| media)
 	}
 
 	pub fn current_url(&self) -> Option<&str> {

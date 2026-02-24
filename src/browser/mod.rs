@@ -172,6 +172,23 @@ impl ContentBrowser {
 		self.posts.get(self.current_index)
 	}
 
+	pub fn current_index(&self) -> usize {
+		self.current_index
+	}
+
+	pub fn posts_len(&self) -> usize {
+		self.posts.len()
+	}
+
+	pub fn get_post_relative(&self, offset: isize) -> Option<&Post> {
+		if self.posts.is_empty() {
+			return None;
+		}
+		let len = self.posts.len() as isize;
+		let idx = (self.current_index as isize + offset).rem_euclid(len) as usize;
+		self.posts.get(idx)
+	}
+
 	pub fn is_empty(&self) -> bool {
 		self.posts.is_empty()
 	}

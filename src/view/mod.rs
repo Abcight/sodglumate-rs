@@ -57,6 +57,12 @@ pub struct ViewManager {
 	pub(crate) beat_pulse_scale: f32,
 
 	pub(crate) image_fill_mode: ImageFillMode,
+
+	// Gallery animation state
+	gallery_anim_start_offset: f32,
+	gallery_anim_offset: f32,
+	gallery_anim_time: f32,
+	last_gallery_index: usize,
 }
 
 impl ViewManager {
@@ -88,6 +94,10 @@ impl ViewManager {
 			beat_pulse_enabled,
 			beat_pulse_scale,
 			image_fill_mode,
+			gallery_anim_start_offset: 0.0,
+			gallery_anim_offset: 0.0,
+			gallery_anim_time: 0.0,
+			last_gallery_index: 0,
 		}
 	}
 
@@ -367,6 +377,7 @@ impl ViewManager {
 				let fill_label = match current_fill {
 					ImageFillMode::Cover => "Cover",
 					ImageFillMode::Fit => "Fit",
+					ImageFillMode::FitToGallery => "Fit to Gallery",
 				};
 				egui::ComboBox::from_id_salt("image_fill_mode")
 					.selected_text(fill_label)
@@ -385,6 +396,17 @@ impl ViewManager {
 						{
 							events.push(Event::View(ViewEvent::SetImageFillMode {
 								mode: ImageFillMode::Fit,
+							}));
+						}
+						if ui
+							.selectable_label(
+								current_fill == ImageFillMode::FitToGallery,
+								"Fit to Gallery",
+							)
+							.clicked()
+						{
+							events.push(Event::View(ViewEvent::SetImageFillMode {
+								mode: ImageFillMode::FitToGallery,
 							}));
 						}
 					});
@@ -458,7 +480,7 @@ impl ViewManager {
 			} else if let Some(err) = &self.error_msg {
 				ui.label(egui::RichText::new(err).color(egui::Color32::RED));
 			} else if let Some(_url) = media.current_url() {
-				self.render_media(ui, ctx, media);
+				self.render_media(ui, ctx, media, browser);
 			} else {
 				ui.centered_and_justified(|ui| {
 					ui.label("Enter a query and search to start.");
@@ -467,7 +489,13 @@ impl ViewManager {
 		});
 	}
 
-	fn render_media(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, media: &mut MediaCache) {
+	fn render_media(
+		&mut self,
+		ui: &mut egui::Ui,
+		ctx: &egui::Context,
+		media: &mut MediaCache,
+		browser: &ContentBrowser,
+	) {
 		let pan_cycle = self.auto_pan_cycle_duration;
 		let load_time = self.image_load_time;
 		let mut user_panned = self.user_has_panned;
@@ -519,7 +547,7 @@ impl ViewManager {
 					};
 
 					match self.image_fill_mode {
-						crate::types::ImageFillMode::Cover => {
+						ImageFillMode::Cover => {
 							let width_ratio = available_size.x / img_size.x;
 							let height_ratio = available_size.y / img_size.y;
 							let scale = width_ratio.max(height_ratio);
@@ -569,7 +597,7 @@ impl ViewManager {
 								);
 							});
 						}
-						crate::types::ImageFillMode::Fit => {
+						ImageFillMode::Fit => {
 							let width_ratio = available_size.x / img_size.x;
 							let height_ratio = available_size.y / img_size.y;
 							let scale = width_ratio.min(height_ratio);
@@ -593,6 +621,200 @@ impl ViewManager {
 									uv,
 									egui::Color32::WHITE,
 								);
+							});
+						}
+						ImageFillMode::FitToGallery => {
+							let len = browser.posts_len();
+							if len > 0 {
+								let new_idx = browser.current_index();
+								if new_idx != self.last_gallery_index {
+									let mut delta =
+										new_idx as isize - self.last_gallery_index as isize;
+									let ilen = len as isize;
+									if delta > ilen / 2 {
+										delta -= ilen;
+									} else if delta < -ilen / 2 {
+										delta += ilen;
+									}
+
+									let visual_delta = delta.signum() as f32;
+
+									self.gallery_anim_start_offset =
+										self.gallery_anim_offset + visual_delta;
+									self.gallery_anim_offset = self.gallery_anim_start_offset;
+									self.gallery_anim_time = 0.0;
+									self.last_gallery_index = new_idx;
+								}
+							}
+
+							let anim_duration = 0.4;
+							if self.gallery_anim_time < anim_duration {
+								let dt = ctx.input(|i| i.stable_dt);
+								self.gallery_anim_time =
+									(self.gallery_anim_time + dt).min(anim_duration);
+								let t = self.gallery_anim_time / anim_duration;
+								let ease = if t < 0.5 {
+									4.0 * t * t * t
+								} else {
+									1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+								};
+								self.gallery_anim_offset =
+									self.gallery_anim_start_offset * (1.0 - ease);
+								ctx.request_repaint();
+							} else {
+								self.gallery_anim_offset = 0.0;
+							}
+
+							ui.centered_and_justified(|ui| {
+								let (rect, _response) =
+									ui.allocate_exact_size(available_size, egui::Sense::hover());
+
+								let center_rect =
+									egui::Rect::from_min_size(rect.min, available_size);
+
+								// Determine main image width
+								let mut main_w = available_size.x;
+								if let Some(post) = browser.get_post_relative(0) {
+									if let Some(crate::types::LoadedMedia::Image { texture }) =
+										media.get_media_by_post(post)
+									{
+										let size = texture.size_vec2();
+										let scale = (available_size.x / size.x)
+											.min(available_size.y / size.y);
+										main_w = size.x * scale;
+									}
+								}
+
+								let gutter_w = ((available_size.x - main_w) / 2.0).max(0.0);
+								let left_gutter = egui::Rect::from_min_size(
+									rect.min,
+									egui::vec2(gutter_w, available_size.y),
+								);
+								let right_gutter = egui::Rect::from_min_size(
+									rect.min + egui::vec2(available_size.x - gutter_w, 0.0),
+									egui::vec2(gutter_w, available_size.y),
+								);
+
+								let off_left =
+									left_gutter.translate(egui::vec2(-gutter_w - 100.0, 0.0));
+								let off_right =
+									right_gutter.translate(egui::vec2(gutter_w + 100.0, 0.0));
+
+								let fit_rect =
+									|img_size: egui::Vec2, space: egui::Rect| -> egui::Rect {
+										if space.width() <= 0.01 || space.height() <= 0.01 {
+											return egui::Rect::from_center_size(
+												space.center(),
+												egui::Vec2::ZERO,
+											);
+										}
+										let width_ratio = space.width() / img_size.x;
+										let height_ratio = space.height() / img_size.y;
+										let scale = width_ratio.min(height_ratio);
+										let size = img_size * scale;
+										egui::Rect::from_center_size(space.center(), size)
+									};
+
+								let cover_rect =
+									|img_size: egui::Vec2, space: egui::Rect| -> egui::Rect {
+										if space.width() <= 0.01 || space.height() <= 0.01 {
+											return egui::Rect::from_center_size(
+												space.center(),
+												egui::Vec2::ZERO,
+											);
+										}
+										let width_ratio = space.width() / img_size.x;
+										let height_ratio = space.height() / img_size.y;
+										let scale = width_ratio.max(height_ratio);
+										let size = img_size * scale;
+										egui::Rect::from_center_size(space.center(), size)
+									};
+
+								let get_rect_at = |slot: isize, size: egui::Vec2| -> egui::Rect {
+									match slot {
+										..=-2 => cover_rect(size, off_left),
+										-1 => cover_rect(size, left_gutter),
+										0 => fit_rect(size, center_rect),
+										1 => cover_rect(size, right_gutter),
+										2.. => cover_rect(size, off_right),
+									}
+								};
+
+								let get_clip_at = |slot: isize| -> egui::Rect {
+									match slot {
+										..=-2 => off_left,
+										-1 => left_gutter,
+										0 => center_rect,
+										1 => right_gutter,
+										2.. => off_right,
+									}
+								};
+
+								for offset in [-2, -1, 1, 2, 0] {
+									let v = offset as f32 + self.gallery_anim_offset;
+
+									// Only draw if within visible slots roughly
+									if v < -2.5 || v > 2.5 {
+										continue;
+									}
+
+									if let Some(post) = browser.get_post_relative(offset) {
+										if let Some(crate::types::LoadedMedia::Image {
+											texture: off_texture,
+										}) = media.get_media_by_post(post)
+										{
+											let img_size = off_texture.size_vec2();
+
+											let v_floor = v.floor();
+											let v_ceil = v.ceil();
+											let fract = v - v_floor;
+
+											let r1 = get_rect_at(v_floor as isize, img_size);
+											let r2 = get_rect_at(v_ceil as isize, img_size);
+
+											let interpolated_center =
+												r1.center() + (r2.center() - r1.center()) * fract;
+											let interpolated_size =
+												r1.size() + (r2.size() - r1.size()) * fract;
+
+											let c1 = get_clip_at(v_floor as isize);
+											let c2 = get_clip_at(v_ceil as isize);
+
+											let clip_min = c1.min + (c2.min - c1.min) * fract;
+											let clip_max = c1.max + (c2.max - c1.max) * fract;
+											let clip_rect =
+												egui::Rect::from_min_max(clip_min, clip_max);
+
+											// apply pulse to the current focus
+											let current_pulse =
+												if offset == 0 { pulse } else { 1.0 };
+											let final_size = interpolated_size * current_pulse;
+
+											let final_rect = egui::Rect::from_center_size(
+												interpolated_center,
+												final_size,
+											);
+											let uv = egui::Rect::from_min_max(
+												egui::pos2(0.0, 0.0),
+												egui::pos2(1.0, 1.0),
+											);
+
+											if final_rect.width() > 0.1 && final_rect.height() > 0.1
+											{
+												let mut painter = ui.painter().clone();
+												painter.set_clip_rect(
+													clip_rect.intersect(ui.clip_rect()),
+												);
+												painter.image(
+													off_texture.id(),
+													final_rect,
+													uv,
+													egui::Color32::WHITE,
+												);
+											}
+										}
+									}
+								}
 							});
 						}
 					}
