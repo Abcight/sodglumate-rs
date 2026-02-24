@@ -1,13 +1,26 @@
 use candle_core::quantized::gguf_file;
 use candle_core::{Device, Tensor};
-use candle_transformers::models::quantized_llama::ModelWeights;
+use candle_transformers::models::quantized_phi::ModelWeights;
 use serde::Deserialize;
 use std::collections::HashMap;
 use tokenizers::Tokenizer;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CoachConfig {
+	pub system_prompt: Option<String>,
 	pub rules: Vec<Rule>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Message {
+	pub role: String,
+	pub content: String,
+}
+
+impl Message {
+	pub fn to_chatml(&self) -> String {
+		format!("<|im_start|>{}\n{}<|im_end|>\n", self.role, self.content)
+	}
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -99,6 +112,7 @@ struct CoachWorker {
 	model_path: std::path::PathBuf,
 	config: CoachConfig,
 	state: CoachState,
+	history: Vec<Message>,
 	tx: std::sync::mpsc::Sender<String>,
 }
 
@@ -110,24 +124,27 @@ impl CoachWorker {
 	) -> Self {
 		// Load config
 		let config_str = std::fs::read_to_string(&preset_path).unwrap_or_default();
-		let config: CoachConfig =
-			toml::from_str(&config_str).unwrap_or_else(|_| CoachConfig { rules: vec![] });
+		let config: CoachConfig = toml::from_str(&config_str).unwrap_or_else(|_| CoachConfig {
+			system_prompt: None,
+			rules: vec![],
+		});
 
 		Self {
 			model_path,
 			config,
 			state: CoachState::new(),
+			history: Vec::new(),
 			tx,
 		}
 	}
 
 	fn run(&mut self, rx: std::sync::mpsc::Receiver<CoachEvent>) {
-		// Initialize the candle model here...
+		// Initialize the candle model
 		let mut model: Option<ModelWeights> = None;
 		let mut tokenizer: Option<Tokenizer> = None;
 
 		// Load Tokenizer
-		let tokenizer_path = self.model_path.with_file_name("tokenizer.json");
+		let tokenizer_path = self.model_path.with_extension("json");
 		if tokenizer_path.exists() {
 			match Tokenizer::from_file(&tokenizer_path) {
 				Ok(tok) => {
@@ -204,42 +221,70 @@ impl CoachWorker {
 
 					log::info!("Coach triggered prompt: {}", prompt);
 					if let (Some(m), Some(tok)) = (model.as_deref_mut(), tokenizer.as_deref_mut()) {
-						// Here is where standard single token generation happens
-						let mut tokens = tok
-							.encode(prompt.clone(), false)
-							.unwrap()
-							.get_ids()
-							.to_vec();
+						let mut full_prompt = String::new();
+						if let Some(sys) = &self.config.system_prompt {
+							full_prompt
+								.push_str(&format!("<|im_start|>system\n{}<|im_end|>\n", sys));
+						}
+						for msg in &self.history {
+							full_prompt.push_str(&msg.to_chatml());
+						}
+						full_prompt.push_str(&format!(
+							"<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
+							prompt
+						));
+
+						let prompt_tokens =
+							tok.encode(full_prompt, false).unwrap().get_ids().to_vec();
 
 						let mut response_text = String::new();
-						let max_new_tokens = 50;
+						let max_new_tokens = 100;
 						let mut generated_tokens = 0;
+						let mut index_pos = 0;
+						let mut current_tokens = prompt_tokens.clone();
 
 						while generated_tokens < max_new_tokens {
-							let input = Tensor::new(tokens.as_slice(), &Device::Cpu)
+							log::info!("Coach generating token {}", generated_tokens);
+							let input = Tensor::new(current_tokens.as_slice(), &Device::Cpu)
 								.unwrap()
 								.unsqueeze(0)
 								.unwrap();
-							match m.forward(&input, 0) {
+							match m.forward(&input, index_pos) {
 								Ok(logits) => {
-									let logits = logits.squeeze(0).unwrap();
-									let logits = logits.to_vec1::<f32>().unwrap();
+									let seq_len = current_tokens.len();
+
+									// `forward` already returns logits for the last position only: shape (batch, vocab).
+									// We just need the vocab dimension here.
+									let logits_vec =
+										logits.squeeze(0).unwrap().to_vec1::<f32>().unwrap();
 
 									// Greedy argmax naive sampling
 									let mut next_token = 0;
 									let mut max_prob = f32::NEG_INFINITY;
-									for (i, &p) in logits.iter().enumerate() {
+									for (i, &p) in logits_vec.iter().enumerate() {
 										if p > max_prob {
 											max_prob = p;
 											next_token = i as u32;
 										}
 									}
 
-									tokens.push(next_token);
+									index_pos += seq_len;
+									current_tokens = vec![next_token];
 									generated_tokens += 1;
 
 									if let Some(s) = tok.decode(&[next_token], true).ok() {
 										response_text.push_str(&s);
+										if response_text.ends_with("<|im_end|>") {
+											log::info!(
+												"Coach generated full response: {}",
+												response_text
+											);
+											response_text = response_text
+												.replace("<|im_end|>", "")
+												.trim()
+												.to_string();
+											break;
+										}
 									}
 								}
 								Err(e) => {
@@ -247,6 +292,23 @@ impl CoachWorker {
 									break;
 								}
 							}
+						}
+
+						log::info!("Coach finished generation loop");
+
+						// Save to history
+						self.history.push(Message {
+							role: "user".to_string(),
+							content: prompt.clone(),
+						});
+						self.history.push(Message {
+							role: "assistant".to_string(),
+							content: response_text.clone(),
+						});
+
+						// Trim history to prevent context explosion
+						if self.history.len() > 10 {
+							self.history.drain(0..(self.history.len() - 10));
 						}
 
 						let response = format!("(Coach): {}", response_text);

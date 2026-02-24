@@ -12,6 +12,7 @@ pub use scheduler::Scheduler;
 use crate::beat::SystemBeat;
 use crate::breathing::BreathingOverlay;
 use crate::browser::ContentBrowser;
+use crate::coach::CoachManager;
 use crate::gateway::BooruGateway;
 use crate::media::MediaCache;
 use crate::settings::SettingsManager;
@@ -29,7 +30,7 @@ pub struct Reactor {
 	pub view: ViewManager,
 	pub settings: SettingsManager,
 	pub beat: SystemBeat,
-	pub coach: Option<crate::coach::CoachManager>,
+	pub coach: Option<CoachManager>,
 }
 
 impl Reactor {
@@ -78,7 +79,7 @@ impl Reactor {
 				let m_path = mdir.join(m);
 				let p_path = pdir.join(p);
 				if m_path.exists() && p_path.exists() {
-					reactor.coach = Some(crate::coach::CoachManager::new(m_path, p_path));
+					reactor.coach = Some(CoachManager::new(m_path, p_path));
 				}
 			}
 		}
