@@ -263,8 +263,13 @@ impl ViewManager {
 
 				if settings.auto_play() {
 					let mut seconds = settings.auto_play_delay().as_secs_f32();
+					ui.label("Interval (s)");
 					if ui
-						.add(egui::Slider::new(&mut seconds, 1.0..=60.0).text("Interval (s)"))
+						.add(
+							egui::DragValue::new(&mut seconds)
+								.range(1.0..=60.0)
+								.speed(1.0),
+						)
 						.changed()
 					{
 						events.push(Event::Settings(SettingsEvent::SetDelay {
@@ -287,8 +292,13 @@ impl ViewManager {
 
 				if breathing_enabled {
 					let mut idle_mult = breathing.idle_multiplier();
+					ui.label("Idle");
 					if ui
-						.add(egui::Slider::new(&mut idle_mult, 0.5..=3.0).text("Idle"))
+						.add(
+							egui::DragValue::new(&mut idle_mult)
+								.range(0.5..=3.0)
+								.speed(0.1),
+						)
 						.changed()
 					{
 						events.push(Event::Breathing(BreathingEvent::SetIdleMultiplier {
@@ -332,8 +342,13 @@ impl ViewManager {
 				ui.separator();
 
 				let mut pan_speed = self.auto_pan_cycle_duration;
+				ui.label("Pan Speed (s)");
 				if ui
-					.add(egui::Slider::new(&mut pan_speed, 10.0..=120.0).text("Pan Speed (s)"))
+					.add(
+						egui::DragValue::new(&mut pan_speed)
+							.range(10.0..=120.0)
+							.speed(1.0),
+					)
 					.changed()
 				{
 					self.auto_pan_cycle_duration = pan_speed;
@@ -364,13 +379,13 @@ impl ViewManager {
 					});
 				if beat.is_active() {
 					ui.label(
-						egui::RichText::new("●")
+						egui::RichText::new("*")
 							.color(egui::Color32::GREEN)
 							.size(10.0),
 					);
 				} else {
 					ui.label(
-						egui::RichText::new("●")
+						egui::RichText::new("*")
 							.color(egui::Color32::RED)
 							.size(10.0),
 					);
@@ -378,8 +393,11 @@ impl ViewManager {
 
 				ui.checkbox(&mut self.beat_pulse_enabled, "Pulse");
 				if self.beat_pulse_enabled {
+					ui.label("Scale");
 					ui.add(
-						egui::Slider::new(&mut self.beat_pulse_scale, 0.01..=0.15).text("Scale"),
+						egui::DragValue::new(&mut self.beat_pulse_scale)
+							.range(0.01..=0.15)
+							.speed(0.01),
 					);
 				}
 			});
