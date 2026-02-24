@@ -8,7 +8,7 @@ use crate::reactor::{
 	SourceEvent, ViewEvent,
 };
 use crate::settings::SettingsManager;
-use crate::types::{BreathingPhase, BreathingStyle, LoadedMedia, NavDirection};
+use crate::types::{BreathingPhase, BreathingStyle, ImageFillMode, LoadedMedia, NavDirection};
 use eframe::egui::{self, ScrollArea};
 use std::time::{Duration, Instant};
 
@@ -55,6 +55,8 @@ pub struct ViewManager {
 	// Beat pulse settings
 	pub(crate) beat_pulse_enabled: bool,
 	pub(crate) beat_pulse_scale: f32,
+
+	pub(crate) image_fill_mode: ImageFillMode,
 }
 
 impl ViewManager {
@@ -64,6 +66,7 @@ impl ViewManager {
 		auto_pan_cycle_duration: f32,
 		beat_pulse_enabled: bool,
 		beat_pulse_scale: f32,
+		image_fill_mode: ImageFillMode,
 	) -> Self {
 		Self {
 			image_load_time: Instant::now(),
@@ -84,6 +87,7 @@ impl ViewManager {
 			last_beat_scale: 1.0,
 			beat_pulse_enabled,
 			beat_pulse_scale,
+			image_fill_mode,
 		}
 	}
 
@@ -107,6 +111,10 @@ impl ViewManager {
 			}
 			Event::Media(MediaEvent::LoadError { error }) => {
 				self.error_msg = Some(format!("Failed to load: {}", error));
+				ComponentResponse::none()
+			}
+			Event::View(ViewEvent::SetImageFillMode { mode }) => {
+				self.image_fill_mode = *mode;
 				ComponentResponse::none()
 			}
 			_ => ComponentResponse::none(),
@@ -353,6 +361,33 @@ impl ViewManager {
 				{
 					self.auto_pan_cycle_duration = pan_speed;
 				}
+				ui.separator();
+
+				let current_fill = self.image_fill_mode;
+				let fill_label = match current_fill {
+					ImageFillMode::Cover => "Cover",
+					ImageFillMode::Fit => "Fit",
+				};
+				egui::ComboBox::from_id_salt("image_fill_mode")
+					.selected_text(fill_label)
+					.show_ui(ui, |ui| {
+						if ui
+							.selectable_label(current_fill == ImageFillMode::Cover, "Cover")
+							.clicked()
+						{
+							events.push(Event::View(ViewEvent::SetImageFillMode {
+								mode: ImageFillMode::Cover,
+							}));
+						}
+						if ui
+							.selectable_label(current_fill == ImageFillMode::Fit, "Fit")
+							.clicked()
+						{
+							events.push(Event::View(ViewEvent::SetImageFillMode {
+								mode: ImageFillMode::Fit,
+							}));
+						}
+					});
 
 				ui.separator();
 
@@ -475,11 +510,6 @@ impl ViewManager {
 					let available_size = ui.available_size();
 					let img_size = texture.size_vec2();
 
-					let width_ratio = available_size.x / img_size.x;
-					let height_ratio = available_size.y / img_size.y;
-					let scale = width_ratio.max(height_ratio);
-					let base_display_size = img_size * scale;
-
 					// Apply beat pulse if enabled
 					let pulse = if self.beat_pulse_enabled && self.beat_intensity > 0.01 {
 						ctx.request_repaint();
@@ -488,41 +518,84 @@ impl ViewManager {
 						1.0
 					};
 
-					let mut scroll_area = egui::ScrollArea::both().scroll_bar_visibility(
-						egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
-					);
+					match self.image_fill_mode {
+						crate::types::ImageFillMode::Cover => {
+							let width_ratio = available_size.x / img_size.x;
+							let height_ratio = available_size.y / img_size.y;
+							let scale = width_ratio.max(height_ratio);
+							let base_display_size = img_size * scale;
 
-					// Auto-pan
-					if !user_panned {
-						let elapsed = load_time.elapsed().as_secs_f32();
-						let cycle = (elapsed * 2.0 * std::f32::consts::PI) / pan_cycle;
-						let factor = (1.0 - cycle.cos()) * 0.5;
+							let mut scroll_area = egui::ScrollArea::both().scroll_bar_visibility(
+								egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+							);
 
-						let overflow = base_display_size - available_size;
-						if overflow.x > 0.0 {
-							scroll_area = scroll_area.horizontal_scroll_offset(overflow.x * factor);
+							// Auto-pan
+							if !user_panned {
+								let elapsed = load_time.elapsed().as_secs_f32();
+								let cycle = (elapsed * 2.0 * std::f32::consts::PI) / pan_cycle;
+								let factor = (1.0 - cycle.cos()) * 0.5;
+
+								let overflow = base_display_size - available_size;
+								if overflow.x > 0.0 {
+									scroll_area =
+										scroll_area.horizontal_scroll_offset(overflow.x * factor);
+								}
+								if overflow.y > 0.0 {
+									scroll_area =
+										scroll_area.vertical_scroll_offset(overflow.y * factor);
+								}
+								ctx.request_repaint();
+							}
+
+							scroll_area.show(ui, |ui| {
+								handle_scroll_input(ui, &mut user_panned);
+
+								let (rect, _response) =
+									ui.allocate_exact_size(base_display_size, egui::Sense::hover());
+
+								let center = rect.center();
+								let pulsed_size = base_display_size * pulse;
+								let pulsed_rect = egui::Rect::from_center_size(center, pulsed_size);
+								let uv = egui::Rect::from_min_max(
+									egui::pos2(0.0, 0.0),
+									egui::pos2(1.0, 1.0),
+								);
+
+								ui.painter().image(
+									texture.id(),
+									pulsed_rect,
+									uv,
+									egui::Color32::WHITE,
+								);
+							});
 						}
-						if overflow.y > 0.0 {
-							scroll_area = scroll_area.vertical_scroll_offset(overflow.y * factor);
+						crate::types::ImageFillMode::Fit => {
+							let width_ratio = available_size.x / img_size.x;
+							let height_ratio = available_size.y / img_size.y;
+							let scale = width_ratio.min(height_ratio);
+							let base_display_size = img_size * scale;
+
+							ui.centered_and_justified(|ui| {
+								let (rect, _response) =
+									ui.allocate_exact_size(available_size, egui::Sense::hover());
+
+								let center = rect.center();
+								let pulsed_size = base_display_size * pulse;
+								let pulsed_rect = egui::Rect::from_center_size(center, pulsed_size);
+								let uv = egui::Rect::from_min_max(
+									egui::pos2(0.0, 0.0),
+									egui::pos2(1.0, 1.0),
+								);
+
+								ui.painter().image(
+									texture.id(),
+									pulsed_rect,
+									uv,
+									egui::Color32::WHITE,
+								);
+							});
 						}
-						ctx.request_repaint();
 					}
-
-					scroll_area.show(ui, |ui| {
-						handle_scroll_input(ui, &mut user_panned);
-
-						let (rect, _response) =
-							ui.allocate_exact_size(base_display_size, egui::Sense::hover());
-
-						let center = rect.center();
-						let pulsed_size = base_display_size * pulse;
-						let pulsed_rect = egui::Rect::from_center_size(center, pulsed_size);
-						let uv =
-							egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-
-						ui.painter()
-							.image(texture.id(), pulsed_rect, uv, egui::Color32::WHITE);
-					});
 				}
 			}
 		} else if media.is_loading() {
@@ -1101,6 +1174,7 @@ impl Default for ViewManager {
 			10.0,
 			false,
 			0.03,
+			ImageFillMode::default(),
 		)
 	}
 }

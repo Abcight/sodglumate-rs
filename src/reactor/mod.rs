@@ -53,6 +53,7 @@ impl Reactor {
 				settings.auto_pan_cycle_duration,
 				settings.beat_pulse_enabled,
 				settings.beat_pulse_scale,
+				settings.image_fill_mode,
 			),
 			settings: SettingsManager::new(
 				settings.auto_play,
@@ -201,6 +202,7 @@ impl eframe::App for Reactor {
 			selected_audio_device: self.beat.selected_device().clone(),
 			beat_pulse_enabled: self.view.beat_pulse_enabled,
 			beat_pulse_scale: self.view.beat_pulse_scale,
+			image_fill_mode: self.view.image_fill_mode,
 		};
 		crate::config::save_settings(&saved);
 	}

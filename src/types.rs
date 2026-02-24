@@ -15,6 +15,14 @@ pub enum BreathingStyle {
 	Classic, // Quick pop-in animation
 }
 
+/// How to fill the image in the view
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ImageFillMode {
+	#[default]
+	Cover,
+	Fit,
+}
+
 /// Breathing timer phases
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BreathingPhase {

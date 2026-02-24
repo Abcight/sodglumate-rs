@@ -1,5 +1,5 @@
 use crate::api::Post;
-use crate::types::{BreathingPhase, BreathingStyle, NavDirection};
+use crate::types::{BreathingPhase, BreathingStyle, ImageFillMode, NavDirection};
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
@@ -106,6 +106,7 @@ pub enum ViewEvent {
 	MediaReady,
 	RequestBreathingToggle,
 	BeatPulse { scale: f32 },
+	SetImageFillMode { mode: ImageFillMode },
 }
 
 #[derive(Clone, Debug)]

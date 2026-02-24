@@ -1,4 +1,4 @@
-use crate::types::BreathingStyle;
+use crate::types::{BreathingStyle, ImageFillMode};
 use directories::{BaseDirs, ProjectDirs};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -17,6 +17,7 @@ pub struct SavedSettings {
 	pub selected_audio_device: Option<String>,
 	pub beat_pulse_enabled: bool,
 	pub beat_pulse_scale: f32,
+	pub image_fill_mode: ImageFillMode,
 }
 
 impl Default for SavedSettings {
@@ -33,6 +34,7 @@ impl Default for SavedSettings {
 			selected_audio_device: None,
 			beat_pulse_enabled: false,
 			beat_pulse_scale: 0.03,
+			image_fill_mode: ImageFillMode::default(),
 		}
 	}
 }
