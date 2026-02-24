@@ -29,6 +29,7 @@ pub struct Reactor {
 	pub view: ViewManager,
 	pub settings: SettingsManager,
 	pub beat: SystemBeat,
+	pub coach: Option<crate::coach::CoachManager>,
 }
 
 impl Reactor {
@@ -54,6 +55,9 @@ impl Reactor {
 				settings.beat_pulse_enabled,
 				settings.beat_pulse_scale,
 				settings.image_fill_mode,
+				settings.coach_enabled,
+				settings.coach_model.clone(),
+				settings.coach_preset.clone(),
 			),
 			settings: SettingsManager::new(
 				settings.auto_play,
@@ -61,7 +65,23 @@ impl Reactor {
 				settings.cap_by_breathing,
 			),
 			beat: SystemBeat::new(settings.selected_audio_device),
+			coach: None,
 		};
+
+		if settings.coach_enabled {
+			if let (Some(m), Some(p), Some(mdir), Some(pdir)) = (
+				&settings.coach_model,
+				&settings.coach_preset,
+				crate::config::get_models_dir(),
+				crate::config::get_presets_dir(),
+			) {
+				let m_path = mdir.join(m);
+				let p_path = pdir.join(p);
+				if m_path.exists() && p_path.exists() {
+					reactor.coach = Some(crate::coach::CoachManager::new(m_path, p_path));
+				}
+			}
+		}
 
 		// Initialize all components
 		reactor.process_response(reactor.breathing.init());
@@ -90,6 +110,12 @@ impl Reactor {
 		self.process_response(gateway_response);
 		self.process_response(media_response);
 		self.process_response(beat_response);
+
+		if let Some(coach) = &self.coach {
+			if let Some(msg) = coach.try_recv() {
+				self.view.coach_message = Some(msg);
+			}
+		}
 
 		// Process event queue until empty
 		let mut iterations = 0;
@@ -140,7 +166,21 @@ impl Reactor {
 			Event::Gateway(_) => response = self.gateway.handle(event),
 			Event::Browser(b) => {
 				response = self.browser.handle(event);
-				if let BrowserEvent::Navigate { .. } = b {
+				if let BrowserEvent::Navigate { direction } = b {
+					if let Some(coach) = &self.coach {
+						let coach_event = match direction {
+							crate::types::NavDirection::Next => crate::coach::CoachEvent::NextImage,
+							crate::types::NavDirection::Prev => crate::coach::CoachEvent::PrevImage,
+							crate::types::NavDirection::Skip(s) => {
+								if *s > 0 {
+									crate::coach::CoachEvent::NextImage
+								} else {
+									crate::coach::CoachEvent::PrevImage
+								}
+							}
+						};
+						coach.send_event(coach_event);
+					}
 					let settings_res = self.settings.handle(event, &self.breathing);
 					response.events.extend(settings_res.events);
 					response.scheduled.extend(settings_res.scheduled);
@@ -151,7 +191,10 @@ impl Reactor {
 			Event::Beat(_) => response = self.beat.handle(event),
 			Event::Breathing(b) => {
 				response = self.breathing.handle(event);
-				if let BreathingEvent::PhaseStarted(_) = b {
+				if let BreathingEvent::PhaseStarted(p) = b {
+					if let Some(coach) = &self.coach {
+						coach.send_event(crate::coach::CoachEvent::PhaseChange(format!("{:?}", p)));
+					}
 					// Route PhaseStarted to settings as well
 					let settings_res = self.settings.handle(event, &self.breathing);
 					response.events.extend(settings_res.events);
@@ -203,6 +246,9 @@ impl eframe::App for Reactor {
 			beat_pulse_enabled: self.view.beat_pulse_enabled,
 			beat_pulse_scale: self.view.beat_pulse_scale,
 			image_fill_mode: self.view.image_fill_mode,
+			coach_enabled: self.view.coach_enabled,
+			coach_model: self.view.coach_model.clone(),
+			coach_preset: self.view.coach_preset.clone(),
 		};
 		crate::config::save_settings(&saved);
 	}

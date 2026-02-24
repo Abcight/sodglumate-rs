@@ -4,6 +4,7 @@ mod api;
 mod beat;
 mod breathing;
 mod browser;
+mod coach;
 mod config;
 mod gateway;
 mod media;

@@ -58,6 +58,11 @@ pub struct ViewManager {
 
 	pub(crate) image_fill_mode: ImageFillMode,
 
+	pub(crate) coach_enabled: bool,
+	pub(crate) coach_model: Option<String>,
+	pub(crate) coach_preset: Option<String>,
+	pub(crate) coach_message: Option<String>,
+
 	// Gallery animation state
 	gallery_anim_start_offset: f32,
 	gallery_anim_offset: f32,
@@ -73,6 +78,9 @@ impl ViewManager {
 		beat_pulse_enabled: bool,
 		beat_pulse_scale: f32,
 		image_fill_mode: ImageFillMode,
+		coach_enabled: bool,
+		coach_model: Option<String>,
+		coach_preset: Option<String>,
 	) -> Self {
 		Self {
 			image_load_time: Instant::now(),
@@ -94,6 +102,10 @@ impl ViewManager {
 			beat_pulse_enabled,
 			beat_pulse_scale,
 			image_fill_mode,
+			coach_enabled,
+			coach_model,
+			coach_preset,
+			coach_message: None,
 			gallery_anim_start_offset: 0.0,
 			gallery_anim_offset: 0.0,
 			gallery_anim_time: 0.0,
@@ -238,6 +250,11 @@ impl ViewManager {
 		events: &mut Vec<Event>,
 		enabled: bool,
 	) {
+		let models_dir = crate::config::get_models_dir();
+		let presets_dir = crate::config::get_presets_dir();
+		let has_coach_deps = models_dir.as_ref().map_or(false, |d| d.exists())
+			&& presets_dir.as_ref().map_or(false, |d| d.exists());
+
 		egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
 			if !enabled {
 				ui.disable();
@@ -457,6 +474,70 @@ impl ViewManager {
 							.speed(0.01),
 					);
 				}
+
+				if has_coach_deps {
+					ui.separator();
+					ui.checkbox(&mut self.coach_enabled, "Coach");
+					if self.coach_enabled {
+						// Render combo box for model
+						let models = if let Some(dir) = &models_dir {
+							std::fs::read_dir(dir)
+								.into_iter()
+								.flatten()
+								.filter_map(|e| e.ok())
+								.map(|e| e.file_name().to_string_lossy().to_string())
+								.filter(|f| f.ends_with(".gguf"))
+								.collect::<Vec<_>>()
+						} else {
+							vec![]
+						};
+
+						let selected_model = self.coach_model.as_deref().unwrap_or("Select Model");
+						egui::ComboBox::from_id_salt("coach_model")
+							.selected_text(selected_model)
+							.show_ui(ui, |ui| {
+								for m in models {
+									if ui
+										.selectable_label(self.coach_model.as_ref() == Some(&m), &m)
+										.clicked()
+									{
+										self.coach_model = Some(m);
+									}
+								}
+							});
+
+						// Render combo box for preset
+						let presets = if let Some(dir) = &presets_dir {
+							std::fs::read_dir(dir)
+								.into_iter()
+								.flatten()
+								.filter_map(|e| e.ok())
+								.map(|e| e.file_name().to_string_lossy().to_string())
+								.filter(|f| f.ends_with(".toml"))
+								.collect::<Vec<_>>()
+						} else {
+							vec![]
+						};
+
+						let selected_preset =
+							self.coach_preset.as_deref().unwrap_or("Select Preset");
+						egui::ComboBox::from_id_salt("coach_preset")
+							.selected_text(selected_preset)
+							.show_ui(ui, |ui| {
+								for p in presets {
+									if ui
+										.selectable_label(
+											self.coach_preset.as_ref() == Some(&p),
+											&p,
+										)
+										.clicked()
+									{
+										self.coach_preset = Some(p);
+									}
+								}
+							});
+					}
+				}
 			});
 		});
 	}
@@ -487,6 +568,27 @@ impl ViewManager {
 				});
 			}
 		});
+
+		// Render Coach Overlay
+		if let Some(msg) = &self.coach_message {
+			egui::Area::new(egui::Id::new("coach_overlay"))
+				.anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(20.0, -20.0))
+				.interactable(false)
+				.order(egui::Order::Foreground)
+				.show(ctx, |ui| {
+					egui::Frame::window(&ctx.style())
+						.fill(egui::Color32::from_black_alpha(200))
+						.inner_margin(12.0)
+						.rounding(8.0)
+						.show(ui, |ui| {
+							ui.label(
+								egui::RichText::new(msg)
+									.size(16.0)
+									.color(egui::Color32::WHITE),
+							);
+						});
+				});
+		}
 	}
 
 	fn render_media(
@@ -1408,6 +1510,9 @@ impl Default for ViewManager {
 			false,
 			0.03,
 			ImageFillMode::default(),
+			false,
+			None,
+			None,
 		)
 	}
 }
