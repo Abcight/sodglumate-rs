@@ -221,6 +221,7 @@ struct CoachWorker {
 	config: CoachConfig,
 	state: CoachState,
 	history: Vec<Message>,
+	device: Device,
 	tx: std::sync::mpsc::Sender<String>,
 }
 
@@ -240,13 +241,52 @@ impl CoachWorker {
 			}
 		});
 
+		let device = Self::select_inference_device();
+
 		Self {
 			model_path,
 			config,
 			state: CoachState::new(),
 			history: Vec::new(),
+			device,
 			tx,
 		}
+	}
+
+	fn select_inference_device() -> Device {
+		#[cfg(feature = "cuda")]
+		{
+			match Device::new_cuda(0) {
+				Ok(device) => {
+					log::info!("Coach inference using CUDA GPU (device 0)");
+					return device;
+				}
+				Err(err) => {
+					log::warn!("CUDA device unavailable, falling back: {}", err);
+				}
+			}
+		}
+
+		#[cfg(all(feature = "metal", target_os = "macos"))]
+		{
+			match Device::new_metal(0) {
+				Ok(device) => {
+					log::info!("Coach inference using Metal GPU (device 0)");
+					return device;
+				}
+				Err(err) => {
+					log::warn!("Metal device unavailable, falling back: {}", err);
+				}
+			}
+		}
+
+		if cfg!(feature = "cuda") || cfg!(feature = "metal") {
+			log::info!("Coach falling back to CPU inference (GPU init failed or not present)");
+		} else {
+			log::info!("Coach built without GPU features; using CPU inference");
+		}
+
+		Device::Cpu
 	}
 
 	fn run(&mut self, rx: std::sync::mpsc::Receiver<CoachEvent>) {
@@ -273,7 +313,7 @@ impl CoachWorker {
 			match std::fs::File::open(&self.model_path) {
 				Ok(mut file) => match gguf_file::Content::read(&mut file) {
 					Ok(content) => {
-						match ModelWeights::from_gguf(content, &mut file, &Device::Cpu) {
+						match ModelWeights::from_gguf(content, &mut file, &self.device) {
 							Ok(w) => {
 								log::info!("Successfully loaded GGUF model");
 								model = Some(w);
@@ -310,6 +350,8 @@ impl CoachWorker {
 		tokenizer: &mut Tokenizer,
 		save_history: bool,
 	) -> String {
+		let end_token_ids = Self::end_token_ids(tokenizer);
+
 		let mut full_prompt = String::new();
 		if let Some(sys) = &self.config.system_prompt {
 			full_prompt.push_str(&format!("<|im_start|>system\n{}<|im_end|>\n", sys));
@@ -336,7 +378,7 @@ impl CoachWorker {
 		let mut current_tokens = prompt_tokens.clone();
 
 		while generated_tokens < max_new_tokens {
-			let input = Tensor::new(current_tokens.as_slice(), &Device::Cpu)
+			let input = Tensor::new(current_tokens.as_slice(), &self.device)
 				.unwrap()
 				.unsqueeze(0)
 				.unwrap();
@@ -366,14 +408,8 @@ impl CoachWorker {
 					output_tokens.push(next_token);
 					generated_tokens += 1;
 
-					if let Some(s) = tokenizer.decode(&output_tokens, false).ok() {
-						response_text = s;
-						if response_text.ends_with("<|im_end|>") {
-							log::info!("Coach generated full response: {}", response_text);
-							response_text =
-								response_text.replace("<|im_end|>", "").trim().to_string();
-							break;
-						}
+					if end_token_ids.iter().any(|&id| id == next_token) {
+						break;
 					}
 				}
 				Err(e) => {
@@ -396,6 +432,16 @@ impl CoachWorker {
 			if self.history.len() > 10 {
 				self.history.drain(0..(self.history.len() - 10));
 			}
+		}
+
+		if response_text.is_empty() {
+			if let Ok(decoded) = tokenizer.decode(&output_tokens, false) {
+				response_text = decoded;
+			}
+		}
+
+		if response_text.ends_with("<|im_end|>") {
+			response_text = response_text.replace("<|im_end|>", "").trim().to_string();
 		}
 
 		response_text
@@ -550,5 +596,15 @@ impl CoachWorker {
 				}
 			}
 		}
+	}
+
+	fn end_token_ids(tokenizer: &Tokenizer) -> Vec<u32> {
+		let mut ids = Vec::new();
+		for token in ["<|im_end|>", "</s>", "<eos>"] {
+			if let Some(id) = tokenizer.token_to_id(token) {
+				ids.push(id);
+			}
+		}
+		ids
 	}
 }
