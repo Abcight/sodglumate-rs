@@ -6,6 +6,22 @@ use std::collections::HashMap;
 use tokenizers::Tokenizer;
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum CoachValue {
+	Number(i32),
+	String(String),
+}
+
+impl std::fmt::Display for CoachValue {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			CoachValue::Number(n) => write!(f, "{}", n),
+			CoachValue::String(s) => write!(f, "{}", s),
+		}
+	}
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct CoachConfig {
 	pub system_prompt: Option<String>,
 	pub rules: Vec<Rule>,
@@ -26,19 +42,53 @@ impl Message {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Rule {
 	pub on_event: String,
+	pub conditions: Option<Vec<Condition>>,
 	pub actions: Vec<Action>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
 pub enum Action {
-	IncreaseValue { key: String, amount: i32 },
-	SetState { key: String, value: i32 },
-	EmitMessage { prompt_template: String },
+	SetValue {
+		key: String,
+		value: CoachValue,
+	},
+	IncreaseValue {
+		key: String,
+		amount: i32,
+	},
+	IncreaseValueByValue {
+		target_key: String,
+		by_key: String,
+	},
+	SetState {
+		key: String,
+		value: CoachValue,
+	},
+	EmitMessage {
+		prompt_template: String,
+		max_tokens: Option<usize>,
+	},
+	StoreMessage {
+		prompt_template: String,
+		max_tokens: Option<usize>,
+		store_at: String,
+	},
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type")]
+pub enum Condition {
+	Equal { key: String, value: i32 },
+	NotEqual { key: String, value: i32 },
+	Greater { key: String, value: i32 },
+	GreaterOrEqual { key: String, value: i32 },
+	Less { key: String, value: i32 },
+	LessOrEqual { key: String, value: i32 },
 }
 
 pub struct CoachState {
-	pub variables: HashMap<String, i32>,
+	pub variables: HashMap<String, CoachValue>,
 }
 
 impl CoachState {
@@ -48,21 +98,25 @@ impl CoachState {
 		}
 	}
 
-	pub fn get(&self, key: &str) -> i32 {
-		self.variables.get(key).copied().unwrap_or(0)
+	pub fn get_number(&self, key: &str) -> i32 {
+		match self.variables.get(key) {
+			Some(CoachValue::Number(n)) => *n,
+			_ => 0,
+		}
 	}
 
-	pub fn set(&mut self, key: String, val: i32) {
+	pub fn set(&mut self, key: String, val: CoachValue) {
 		self.variables.insert(key, val);
 	}
 
 	pub fn increase(&mut self, key: String, amount: i32) {
-		let cur = self.get(&key);
-		self.set(key, cur + amount);
+		let cur = self.get_number(&key);
+		self.set(key, CoachValue::Number(cur + amount));
 	}
 }
 
 pub enum CoachEvent {
+	Load,
 	NextImage,
 	PrevImage,
 	PhaseChange(String),
@@ -71,6 +125,7 @@ pub enum CoachEvent {
 impl CoachEvent {
 	pub fn as_str(&self) -> &str {
 		match self {
+			CoachEvent::Load => "Load",
 			CoachEvent::NextImage => "NextImage",
 			CoachEvent::PrevImage => "PrevImage",
 			CoachEvent::PhaseChange(phase) => phase.as_str(),
@@ -178,12 +233,116 @@ impl CoachWorker {
 			log::warn!("Coach model file does not exist");
 		}
 
+		// Initial synchronous Load event processing
+		log::info!("Executing initial Load event rules...");
+		self.handle_event(&CoachEvent::Load, model.as_mut(), tokenizer.as_mut());
+
 		// Listen for events
+		log::info!("Entering CoachWorker event loop");
 		while let Ok(event) = rx.recv() {
 			self.handle_event(&event, model.as_mut(), tokenizer.as_mut());
 		}
 
 		log::info!("Coach worker shutting down");
+	}
+
+	fn generate_text(
+		&mut self,
+		prompt: &str,
+		_max_tokens: Option<usize>,
+		model: &mut ModelWeights,
+		tokenizer: &mut Tokenizer,
+		save_history: bool,
+	) -> String {
+		let mut full_prompt = String::new();
+		if let Some(sys) = &self.config.system_prompt {
+			full_prompt.push_str(&format!("<|im_start|>system\n{}<|im_end|>\n", sys));
+		}
+		for msg in &self.history {
+			full_prompt.push_str(&msg.to_chatml());
+		}
+		full_prompt.push_str(&format!(
+			"<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
+			prompt
+		));
+
+		let prompt_tokens = tokenizer
+			.encode(full_prompt, false)
+			.unwrap()
+			.get_ids()
+			.to_vec();
+
+		let mut response_text = String::new();
+		let max_new_tokens = 100;
+		let mut generated_tokens = 0;
+		let mut output_tokens = Vec::new();
+		let mut index_pos = 0;
+		let mut current_tokens = prompt_tokens.clone();
+
+		while generated_tokens < max_new_tokens {
+			let input = Tensor::new(current_tokens.as_slice(), &Device::Cpu)
+				.unwrap()
+				.unsqueeze(0)
+				.unwrap();
+			match model.forward(&input, index_pos) {
+				Ok(logits) => {
+					let seq_len = current_tokens.len();
+					let logits_vec = logits.squeeze(0).unwrap().to_vec1::<f32>().unwrap();
+
+					let mut next_token = 0;
+					let mut max_prob = f32::NEG_INFINITY;
+					for (i, &p) in logits_vec.iter().enumerate() {
+						if p > max_prob {
+							max_prob = p;
+							next_token = i as u32;
+						}
+					}
+
+					if max_prob == f32::NEG_INFINITY {
+						log::error!(
+							"Model generated NaNs! Hardware acceleration/correct CPU features may be required."
+						);
+						break;
+					}
+
+					index_pos += seq_len;
+					current_tokens = vec![next_token];
+					output_tokens.push(next_token);
+					generated_tokens += 1;
+
+					if let Some(s) = tokenizer.decode(&output_tokens, false).ok() {
+						response_text = s;
+						if response_text.ends_with("<|im_end|>") {
+							log::info!("Coach generated full response: {}", response_text);
+							response_text =
+								response_text.replace("<|im_end|>", "").trim().to_string();
+							break;
+						}
+					}
+				}
+				Err(e) => {
+					log::error!("Inference error: {}", e);
+					break;
+				}
+			}
+		}
+
+		if save_history {
+			self.history.push(Message {
+				role: "user".to_string(),
+				content: prompt.to_string(),
+			});
+			self.history.push(Message {
+				role: "assistant".to_string(),
+				content: response_text.clone(),
+			});
+
+			if self.history.len() > 10 {
+				self.history.drain(0..(self.history.len() - 10));
+			}
+		}
+
+		response_text
 	}
 
 	fn handle_event(
@@ -198,22 +357,86 @@ impl CoachWorker {
 		// Find matching rules
 		for rule in &self.config.rules {
 			if rule.on_event == event_str {
-				triggers.extend(rule.actions.clone());
+				// Evaluate conditions
+				let mut conditions_met = true;
+				if let Some(conditions) = &rule.conditions {
+					for cond in conditions {
+						match cond {
+							Condition::Equal { key, value } => {
+								if self.state.get_number(key) != *value {
+									conditions_met = false;
+									break;
+								}
+							}
+							Condition::NotEqual { key, value } => {
+								if self.state.get_number(key) == *value {
+									conditions_met = false;
+									break;
+								}
+							}
+							Condition::Greater { key, value } => {
+								if self.state.get_number(key) <= *value {
+									conditions_met = false;
+									break;
+								}
+							}
+							Condition::GreaterOrEqual { key, value } => {
+								if self.state.get_number(key) < *value {
+									conditions_met = false;
+									break;
+								}
+							}
+							Condition::Less { key, value } => {
+								if self.state.get_number(key) >= *value {
+									conditions_met = false;
+									break;
+								}
+							}
+							Condition::LessOrEqual { key, value } => {
+								if self.state.get_number(key) > *value {
+									conditions_met = false;
+									break;
+								}
+							}
+						}
+					}
+				}
+
+				if conditions_met {
+					triggers.extend(rule.actions.clone());
+				}
 			}
 		}
 
 		// Execute actions
 		for action in triggers {
 			match action {
+				Action::SetValue { key, value } => {
+					self.state.set(key, value);
+				}
 				Action::IncreaseValue { key, amount } => {
 					self.state.increase(key, amount);
+				}
+				Action::IncreaseValueByValue { target_key, by_key } => {
+					let amount = self.state.get_number(&by_key);
+					self.state.increase(target_key, amount);
 				}
 				Action::SetState { key, value } => {
 					self.state.set(key, value);
 				}
-				Action::EmitMessage { prompt_template } => {
+				Action::EmitMessage {
+					prompt_template,
+					max_tokens,
+				} => {
 					// Interpolate template
 					let mut prompt = prompt_template.clone();
+					if let Some(limit) = max_tokens {
+						let word_limit = limit * 3 / 4;
+						prompt.push_str(&format!(
+							" (Important: Keep your response short, around {} words maximum. Do not cut off abruptly.)",
+							word_limit
+						));
+					}
 					for (k, v) in &self.state.variables {
 						let placeholder = format!("{{{}}}", k);
 						prompt = prompt.replace(&placeholder, &v.to_string());
@@ -221,110 +444,37 @@ impl CoachWorker {
 
 					log::info!("Coach triggered prompt: {}", prompt);
 					if let (Some(m), Some(tok)) = (model.as_deref_mut(), tokenizer.as_deref_mut()) {
-						let mut full_prompt = String::new();
-						if let Some(sys) = &self.config.system_prompt {
-							full_prompt
-								.push_str(&format!("<|im_start|>system\n{}<|im_end|>\n", sys));
-						}
-						for msg in &self.history {
-							full_prompt.push_str(&msg.to_chatml());
-						}
-						full_prompt.push_str(&format!(
-							"<|im_start|>user\n{}<|im_end|>\n<|im_start|>assistant\n",
-							prompt
-						));
-
-						let prompt_tokens =
-							tok.encode(full_prompt, false).unwrap().get_ids().to_vec();
-
-						let mut response_text = String::new();
-						let max_new_tokens = 100;
-						let mut generated_tokens = 0;
-						let mut output_tokens = Vec::new();
-						let mut index_pos = 0;
-						let mut current_tokens = prompt_tokens.clone();
-
-						while generated_tokens < max_new_tokens {
-							log::info!("Coach generating token {}", generated_tokens);
-							let input = Tensor::new(current_tokens.as_slice(), &Device::Cpu)
-								.unwrap()
-								.unsqueeze(0)
-								.unwrap();
-							match m.forward(&input, index_pos) {
-								Ok(logits) => {
-									let seq_len = current_tokens.len();
-
-									// `forward` already returns logits for the last position only: shape (batch, vocab).
-									// We just need the vocab dimension here.
-									let logits_vec =
-										logits.squeeze(0).unwrap().to_vec1::<f32>().unwrap();
-
-									// Greedy argmax naive sampling
-									let mut next_token = 0;
-									let mut max_prob = f32::NEG_INFINITY;
-									for (i, &p) in logits_vec.iter().enumerate() {
-										if p > max_prob {
-											max_prob = p;
-											next_token = i as u32;
-										}
-									}
-
-									if max_prob == f32::NEG_INFINITY {
-										log::error!(
-											"Model generated NaNs! Hardware acceleration/correct CPU features may be required."
-										);
-										break;
-									}
-
-									index_pos += seq_len;
-									current_tokens = vec![next_token];
-									output_tokens.push(next_token);
-									generated_tokens += 1;
-
-									if let Some(s) = tok.decode(&output_tokens, true).ok() {
-										response_text = s;
-										if response_text.ends_with("<|im_end|>") {
-											log::info!(
-												"Coach generated full response: {}",
-												response_text
-											);
-											response_text = response_text
-												.replace("<|im_end|>", "")
-												.trim()
-												.to_string();
-											break;
-										}
-									}
-								}
-								Err(e) => {
-									log::error!("Inference error: {}", e);
-									break;
-								}
-							}
-						}
-
-						log::info!("Coach finished generation loop");
-
-						// Save to history
-						self.history.push(Message {
-							role: "user".to_string(),
-							content: prompt.clone(),
-						});
-						self.history.push(Message {
-							role: "assistant".to_string(),
-							content: response_text.clone(),
-						});
-
-						// Trim history to prevent context explosion
-						if self.history.len() > 10 {
-							self.history.drain(0..(self.history.len() - 10));
-						}
-
+						let response_text = self.generate_text(&prompt, max_tokens, m, tok, true);
 						let response = format!("(Coach): {}", response_text);
 						let _ = self.tx.send(response);
 					} else {
 						let response = format!("(Coach VM): Generated response to '{}'", prompt);
 						let _ = self.tx.send(response);
+					}
+				}
+				Action::StoreMessage {
+					prompt_template,
+					max_tokens,
+					store_at,
+				} => {
+					let mut prompt = prompt_template.clone();
+					if let Some(limit) = max_tokens {
+						let word_limit = limit * 3 / 4;
+						prompt.push_str(&format!(
+							" (Important: Keep your response short, around {} words maximum. Do not cut off abruptly.)",
+							word_limit
+						));
+					}
+					for (k, v) in &self.state.variables {
+						let placeholder = format!("{{{}}}", k);
+						prompt = prompt.replace(&placeholder, &v.to_string());
+					}
+
+					log::info!("Coach triggered StoreMessage prompt: {}", prompt);
+					if let (Some(m), Some(tok)) = (model.as_deref_mut(), tokenizer.as_deref_mut()) {
+						let response_text = self.generate_text(&prompt, max_tokens, m, tok, false);
+						self.state
+							.set(store_at.clone(), CoachValue::String(response_text));
 					}
 				}
 			}
