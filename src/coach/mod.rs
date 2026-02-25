@@ -5,11 +5,64 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use tokenizers::Tokenizer;
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum CoachValue {
-	Number(i32),
+	Number(f32),
 	String(String),
+}
+
+impl<'de> Deserialize<'de> for CoachValue {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		struct CoachValueVisitor;
+
+		impl<'de> serde::de::Visitor<'de> for CoachValueVisitor {
+			type Value = CoachValue;
+
+			fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+				formatter.write_str("a number or a string")
+			}
+
+			fn visit_i64<E>(self, value: i64) -> Result<CoachValue, E>
+			where
+				E: serde::de::Error,
+			{
+				Ok(CoachValue::Number(value as f32))
+			}
+
+			fn visit_u64<E>(self, value: u64) -> Result<CoachValue, E>
+			where
+				E: serde::de::Error,
+			{
+				Ok(CoachValue::Number(value as f32))
+			}
+
+			fn visit_f64<E>(self, value: f64) -> Result<CoachValue, E>
+			where
+				E: serde::de::Error,
+			{
+				Ok(CoachValue::Number(value as f32))
+			}
+
+			fn visit_str<E>(self, value: &str) -> Result<CoachValue, E>
+			where
+				E: serde::de::Error,
+			{
+				Ok(CoachValue::String(value.to_owned()))
+			}
+
+			fn visit_string<E>(self, value: String) -> Result<CoachValue, E>
+			where
+				E: serde::de::Error,
+			{
+				Ok(CoachValue::String(value))
+			}
+		}
+
+		deserializer.deserialize_any(CoachValueVisitor)
+	}
 }
 
 impl std::fmt::Display for CoachValue {
@@ -55,7 +108,7 @@ pub enum Action {
 	},
 	IncreaseValue {
 		key: String,
-		amount: i32,
+		amount: f32,
 	},
 	IncreaseValueByValue {
 		target_key: String,
@@ -79,12 +132,12 @@ pub enum Action {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
 pub enum Condition {
-	Equal { key: String, value: i32 },
-	NotEqual { key: String, value: i32 },
-	Greater { key: String, value: i32 },
-	GreaterOrEqual { key: String, value: i32 },
-	Less { key: String, value: i32 },
-	LessOrEqual { key: String, value: i32 },
+	Equal { key: String, value: f32 },
+	NotEqual { key: String, value: f32 },
+	Greater { key: String, value: f32 },
+	GreaterOrEqual { key: String, value: f32 },
+	Less { key: String, value: f32 },
+	LessOrEqual { key: String, value: f32 },
 }
 
 pub struct CoachState {
@@ -98,10 +151,10 @@ impl CoachState {
 		}
 	}
 
-	pub fn get_number(&self, key: &str) -> i32 {
+	pub fn get_number(&self, key: &str) -> f32 {
 		match self.variables.get(key) {
 			Some(CoachValue::Number(n)) => *n,
-			_ => 0,
+			_ => 0.0,
 		}
 	}
 
@@ -109,7 +162,7 @@ impl CoachState {
 		self.variables.insert(key, val);
 	}
 
-	pub fn increase(&mut self, key: String, amount: i32) {
+	pub fn increase(&mut self, key: String, amount: f32) {
 		let cur = self.get_number(&key);
 		self.set(key, CoachValue::Number(cur + amount));
 	}
@@ -179,9 +232,12 @@ impl CoachWorker {
 	) -> Self {
 		// Load config
 		let config_str = std::fs::read_to_string(&preset_path).unwrap_or_default();
-		let config: CoachConfig = toml::from_str(&config_str).unwrap_or_else(|_| CoachConfig {
-			system_prompt: None,
-			rules: vec![],
+		let config: CoachConfig = toml::from_str(&config_str).unwrap_or_else(|e| {
+			log::error!("Failed to parse Coach config TOML: {}", e);
+			CoachConfig {
+				system_prompt: None,
+				rules: vec![],
+			}
 		});
 
 		Self {
@@ -431,11 +487,13 @@ impl CoachWorker {
 					// Interpolate template
 					let mut prompt = prompt_template.clone();
 					if let Some(limit) = max_tokens {
-						let word_limit = limit * 3 / 4;
-						prompt.push_str(&format!(
-							" (Important: Keep your response short, around {} words maximum. Do not cut off abruptly.)",
-							word_limit
-						));
+						if limit > 0 {
+							let word_limit = limit * 3 / 4;
+							prompt.push_str(&format!(
+								" (Important: Keep your response short, around {} words maximum. Do not cut off abruptly.)",
+								word_limit
+							));
+						}
 					}
 					for (k, v) in &self.state.variables {
 						let placeholder = format!("{{{}}}", k);
@@ -443,7 +501,12 @@ impl CoachWorker {
 					}
 
 					log::info!("Coach triggered prompt: {}", prompt);
-					if let (Some(m), Some(tok)) = (model.as_deref_mut(), tokenizer.as_deref_mut()) {
+					if max_tokens == Some(0) {
+						let response = format!("(Coach): {}", prompt);
+						let _ = self.tx.send(response);
+					} else if let (Some(m), Some(tok)) =
+						(model.as_deref_mut(), tokenizer.as_deref_mut())
+					{
 						let response_text = self.generate_text(&prompt, max_tokens, m, tok, true);
 						let response = format!("(Coach): {}", response_text);
 						let _ = self.tx.send(response);
@@ -459,11 +522,13 @@ impl CoachWorker {
 				} => {
 					let mut prompt = prompt_template.clone();
 					if let Some(limit) = max_tokens {
-						let word_limit = limit * 3 / 4;
-						prompt.push_str(&format!(
-							" (Important: Keep your response short, around {} words maximum. Do not cut off abruptly.)",
-							word_limit
-						));
+						if limit > 0 {
+							let word_limit = limit * 3 / 4;
+							prompt.push_str(&format!(
+								" (Important: Keep your response short, around {} words maximum. Do not cut off abruptly.)",
+								word_limit
+							));
+						}
 					}
 					for (k, v) in &self.state.variables {
 						let placeholder = format!("{{{}}}", k);
@@ -471,10 +536,16 @@ impl CoachWorker {
 					}
 
 					log::info!("Coach triggered StoreMessage prompt: {}", prompt);
-					if let (Some(m), Some(tok)) = (model.as_deref_mut(), tokenizer.as_deref_mut()) {
+					if max_tokens == Some(0) {
+						self.state.set(store_at.clone(), CoachValue::String(prompt));
+					} else if let (Some(m), Some(tok)) =
+						(model.as_deref_mut(), tokenizer.as_deref_mut())
+					{
 						let response_text = self.generate_text(&prompt, max_tokens, m, tok, false);
 						self.state
 							.set(store_at.clone(), CoachValue::String(response_text));
+					} else {
+						log::error!("Failed to generate response for StoreMessage action");
 					}
 				}
 			}
