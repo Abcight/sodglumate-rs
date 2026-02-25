@@ -574,22 +574,20 @@ impl CoachWorker {
 
 					log::info!("Coach triggered prompt: {}", prompt);
 					if max_tokens == Some(0) {
-						let response = format!("(Coach): {}", prompt);
 						let _ = self.tx.send(CoachOutput {
-							message: Some(response),
+							message: Some(prompt.clone()),
 							state: self.state.variables.clone(),
 						});
 					} else if let (Some(m), Some(tok)) =
 						(model.as_deref_mut(), tokenizer.as_deref_mut())
 					{
 						let response_text = self.generate_text(&prompt, max_tokens, m, tok, true);
-						let response = format!("(Coach): {}", response_text);
 						let _ = self.tx.send(CoachOutput {
-							message: Some(response),
+							message: Some(response_text),
 							state: self.state.variables.clone(),
 						});
 					} else {
-						let response = format!("(Coach VM): Generated response to '{}'", prompt);
+						let response = format!("Generated response to '{}'", prompt);
 						let _ = self.tx.send(CoachOutput {
 							message: Some(response),
 							state: self.state.variables.clone(),

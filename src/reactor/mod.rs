@@ -115,7 +115,43 @@ impl Reactor {
 		if let Some(coach) = &self.coach {
 			if let Some(output) = coach.try_recv() {
 				if let Some(msg) = output.message {
-					self.view.coach_message = Some(msg);
+					let cleaned_msg = msg.replace('\n', " ").replace('\r', "");
+
+					// Split into words and reconstruct lines of max ~60 chars
+					let mut current_line = String::new();
+					let mut is_first_line = true;
+					for word in cleaned_msg.split_whitespace() {
+						if current_line.len() + word.len() + 1 > 60 && !current_line.is_empty() {
+							if is_first_line {
+								self.view
+									.coach_logs
+									.push(format!("> {}", current_line.trim_end()));
+								is_first_line = false;
+							} else {
+								self.view
+									.coach_logs
+									.push(format!("  {}", current_line.trim_end()));
+							}
+							current_line.clear();
+						}
+						current_line.push_str(word);
+						current_line.push(' ');
+					}
+
+					// Push any remaining text as the final line
+					let final_line = current_line.trim_end();
+					if !final_line.is_empty() {
+						if is_first_line {
+							self.view.coach_logs.push(format!("> {}", final_line));
+						} else {
+							self.view.coach_logs.push(format!("  {}", final_line));
+						}
+					}
+
+					// Trim history to 50 items
+					while self.view.coach_logs.len() > 50 {
+						self.view.coach_logs.remove(0);
+					}
 				}
 				self.view.coach_state = output.state;
 			}

@@ -63,7 +63,7 @@ pub struct ViewManager {
 	pub(crate) coach_enabled: bool,
 	pub(crate) coach_model: Option<String>,
 	pub(crate) coach_preset: Option<String>,
-	pub(crate) coach_message: Option<String>,
+	pub(crate) coach_logs: Vec<String>,
 	pub(crate) coach_state: HashMap<String, CoachValue>,
 
 	// Gallery animation state
@@ -108,7 +108,7 @@ impl ViewManager {
 			coach_enabled,
 			coach_model,
 			coach_preset,
-			coach_message: None,
+			coach_logs: Vec::new(),
 			coach_state: HashMap::new(),
 			gallery_anim_start_offset: 0.0,
 			gallery_anim_offset: 0.0,
@@ -574,23 +574,58 @@ impl ViewManager {
 		});
 
 		// Render Coach Overlay
-		if let Some(msg) = &self.coach_message {
+		if !self.coach_logs.is_empty() {
+			let screen_height = ctx.screen_rect().height();
+			let base_font_size = (screen_height * 0.02).max(12.0);
+			let font_size = base_font_size * 0.75;
+			let margin = (screen_height * 0.03).max(10.0);
+
+			let info_overlay_height = base_font_size * 5.0;
+			let offset_y = -margin - info_overlay_height;
+
 			egui::Area::new(egui::Id::new("coach_overlay"))
-				.anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(20.0, -20.0))
+				.anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(margin, offset_y))
 				.interactable(false)
 				.order(egui::Order::Foreground)
 				.show(ctx, |ui| {
-					egui::Frame::window(&ctx.style())
-						.fill(egui::Color32::from_black_alpha(200))
-						.inner_margin(12.0)
-						.rounding(8.0)
-						.show(ui, |ui| {
-							ui.label(
-								egui::RichText::new(msg)
-									.size(16.0)
-									.color(egui::Color32::WHITE),
+					let recent_logs = self.coach_logs.iter().rev().take(5).rev();
+					let outline_color = egui::Color32::from_black_alpha(204);
+					let text_color = egui::Color32::from_rgb(180, 220, 180); // Muted terminal green
+					let font_id = egui::FontId::monospace(font_size);
+					let stroke_width = (font_size * 0.06).max(1.0).min(2.0); // Not too thick
+
+					let offsets = [
+						egui::vec2(-stroke_width, -stroke_width),
+						egui::vec2(0.0, -stroke_width),
+						egui::vec2(stroke_width, -stroke_width),
+						egui::vec2(-stroke_width, 0.0),
+						egui::vec2(stroke_width, 0.0),
+						egui::vec2(-stroke_width, stroke_width),
+						egui::vec2(0.0, stroke_width),
+						egui::vec2(stroke_width, stroke_width),
+					];
+
+					for msg in recent_logs {
+						let text = msg.clone();
+						let galley =
+							ui.painter()
+								.layout_no_wrap(text.clone(), font_id.clone(), text_color);
+						let shadow_galley = ui.painter().layout_no_wrap(
+							text.clone(),
+							font_id.clone(),
+							outline_color,
+						);
+						let (rect, _) = ui.allocate_exact_size(galley.size(), egui::Sense::hover());
+
+						for offset in offsets {
+							ui.painter().galley(
+								rect.min + offset,
+								shadow_galley.clone(),
+								outline_color,
 							);
-						});
+						}
+						ui.painter().galley(rect.min, galley, text_color);
+					}
 				});
 		}
 
