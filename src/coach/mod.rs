@@ -1,6 +1,6 @@
 use candle_core::quantized::gguf_file;
 use candle_core::{Device, Tensor};
-use candle_transformers::models::quantized_phi::ModelWeights;
+use candle_transformers::models::quantized_llama::ModelWeights;
 use serde::Deserialize;
 use std::collections::HashMap;
 use tokenizers::Tokenizer;
@@ -138,8 +138,16 @@ pub enum Condition {
 	GreaterOrEqual { key: String, value: f32 },
 	Less { key: String, value: f32 },
 	LessOrEqual { key: String, value: f32 },
+	DivisibleBy { key: String, value: f32 },
 }
 
+#[derive(Debug, Clone)]
+pub struct CoachOutput {
+	pub message: Option<String>,
+	pub state: HashMap<String, CoachValue>,
+}
+
+#[derive(Clone)]
 pub struct CoachState {
 	pub variables: HashMap<String, CoachValue>,
 }
@@ -188,7 +196,7 @@ impl CoachEvent {
 
 pub struct CoachManager {
 	tx: std::sync::mpsc::Sender<CoachEvent>,
-	rx: std::sync::mpsc::Receiver<String>,
+	rx: std::sync::mpsc::Receiver<CoachOutput>,
 }
 
 impl CoachManager {
@@ -211,7 +219,7 @@ impl CoachManager {
 		let _ = self.tx.send(event);
 	}
 
-	pub fn try_recv(&self) -> Option<String> {
+	pub fn try_recv(&self) -> Option<CoachOutput> {
 		self.rx.try_recv().ok()
 	}
 }
@@ -222,14 +230,14 @@ struct CoachWorker {
 	state: CoachState,
 	history: Vec<Message>,
 	device: Device,
-	tx: std::sync::mpsc::Sender<String>,
+	tx: std::sync::mpsc::Sender<CoachOutput>,
 }
 
 impl CoachWorker {
 	fn new(
 		model_path: std::path::PathBuf,
 		preset_path: std::path::PathBuf,
-		tx: std::sync::mpsc::Sender<String>,
+		tx: std::sync::mpsc::Sender<CoachOutput>,
 	) -> Self {
 		// Load config
 		let config_str = std::fs::read_to_string(&preset_path).unwrap_or_default();
@@ -371,7 +379,7 @@ impl CoachWorker {
 			.to_vec();
 
 		let mut response_text = String::new();
-		let max_new_tokens = 100;
+		let max_new_tokens = 100; // system hardcap
 		let mut generated_tokens = 0;
 		let mut output_tokens = Vec::new();
 		let mut index_pos = 0;
@@ -419,6 +427,15 @@ impl CoachWorker {
 			}
 		}
 
+		if let Ok(decoded) = tokenizer.decode(&output_tokens, false) {
+			response_text = decoded;
+		}
+
+		if response_text.ends_with("<|im_end|>") {
+			response_text = response_text.replace("<|im_end|>", "");
+		}
+		response_text = response_text.trim().to_string();
+
 		if save_history {
 			self.history.push(Message {
 				role: "user".to_string(),
@@ -432,16 +449,6 @@ impl CoachWorker {
 			if self.history.len() > 10 {
 				self.history.drain(0..(self.history.len() - 10));
 			}
-		}
-
-		if response_text.is_empty() {
-			if let Ok(decoded) = tokenizer.decode(&output_tokens, false) {
-				response_text = decoded;
-			}
-		}
-
-		if response_text.ends_with("<|im_end|>") {
-			response_text = response_text.replace("<|im_end|>", "").trim().to_string();
 		}
 
 		response_text
@@ -500,6 +507,12 @@ impl CoachWorker {
 									break;
 								}
 							}
+							Condition::DivisibleBy { key, value } => {
+								if self.state.get_number(key) % *value != 0.0 {
+									conditions_met = false;
+									break;
+								}
+							}
 						}
 					}
 				}
@@ -515,16 +528,32 @@ impl CoachWorker {
 			match action {
 				Action::SetValue { key, value } => {
 					self.state.set(key, value);
+					let _ = self.tx.send(CoachOutput {
+						message: None,
+						state: self.state.variables.clone(),
+					});
 				}
 				Action::IncreaseValue { key, amount } => {
 					self.state.increase(key, amount);
+					let _ = self.tx.send(CoachOutput {
+						message: None,
+						state: self.state.variables.clone(),
+					});
 				}
 				Action::IncreaseValueByValue { target_key, by_key } => {
 					let amount = self.state.get_number(&by_key);
 					self.state.increase(target_key, amount);
+					let _ = self.tx.send(CoachOutput {
+						message: None,
+						state: self.state.variables.clone(),
+					});
 				}
 				Action::SetState { key, value } => {
 					self.state.set(key, value);
+					let _ = self.tx.send(CoachOutput {
+						message: None,
+						state: self.state.variables.clone(),
+					});
 				}
 				Action::EmitMessage {
 					prompt_template,
@@ -535,10 +564,7 @@ impl CoachWorker {
 					if let Some(limit) = max_tokens {
 						if limit > 0 {
 							let word_limit = limit * 3 / 4;
-							prompt.push_str(&format!(
-								" (Important: Keep your response short, around {} words maximum. Do not cut off abruptly.)",
-								word_limit
-							));
+							prompt.push_str(&format!(" (Around {} words maximum)", word_limit));
 						}
 					}
 					for (k, v) in &self.state.variables {
@@ -549,16 +575,25 @@ impl CoachWorker {
 					log::info!("Coach triggered prompt: {}", prompt);
 					if max_tokens == Some(0) {
 						let response = format!("(Coach): {}", prompt);
-						let _ = self.tx.send(response);
+						let _ = self.tx.send(CoachOutput {
+							message: Some(response),
+							state: self.state.variables.clone(),
+						});
 					} else if let (Some(m), Some(tok)) =
 						(model.as_deref_mut(), tokenizer.as_deref_mut())
 					{
 						let response_text = self.generate_text(&prompt, max_tokens, m, tok, true);
 						let response = format!("(Coach): {}", response_text);
-						let _ = self.tx.send(response);
+						let _ = self.tx.send(CoachOutput {
+							message: Some(response),
+							state: self.state.variables.clone(),
+						});
 					} else {
 						let response = format!("(Coach VM): Generated response to '{}'", prompt);
-						let _ = self.tx.send(response);
+						let _ = self.tx.send(CoachOutput {
+							message: Some(response),
+							state: self.state.variables.clone(),
+						});
 					}
 				}
 				Action::StoreMessage {
@@ -570,10 +605,7 @@ impl CoachWorker {
 					if let Some(limit) = max_tokens {
 						if limit > 0 {
 							let word_limit = limit * 3 / 4;
-							prompt.push_str(&format!(
-								" (Important: Keep your response short, around {} words maximum. Do not cut off abruptly.)",
-								word_limit
-							));
+							prompt.push_str(&format!(" (Around {} words maximum)", word_limit));
 						}
 					}
 					for (k, v) in &self.state.variables {
@@ -584,12 +616,20 @@ impl CoachWorker {
 					log::info!("Coach triggered StoreMessage prompt: {}", prompt);
 					if max_tokens == Some(0) {
 						self.state.set(store_at.clone(), CoachValue::String(prompt));
+						let _ = self.tx.send(CoachOutput {
+							message: None,
+							state: self.state.variables.clone(),
+						});
 					} else if let (Some(m), Some(tok)) =
 						(model.as_deref_mut(), tokenizer.as_deref_mut())
 					{
 						let response_text = self.generate_text(&prompt, max_tokens, m, tok, false);
 						self.state
 							.set(store_at.clone(), CoachValue::String(response_text));
+						let _ = self.tx.send(CoachOutput {
+							message: None,
+							state: self.state.variables.clone(),
+						});
 					} else {
 						log::error!("Failed to generate response for StoreMessage action");
 					}

@@ -113,8 +113,11 @@ impl Reactor {
 		self.process_response(beat_response);
 
 		if let Some(coach) = &self.coach {
-			if let Some(msg) = coach.try_recv() {
-				self.view.coach_message = Some(msg);
+			if let Some(output) = coach.try_recv() {
+				if let Some(msg) = output.message {
+					self.view.coach_message = Some(msg);
+				}
+				self.view.coach_state = output.state;
 			}
 		}
 

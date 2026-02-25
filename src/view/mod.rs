@@ -1,6 +1,7 @@
 use crate::beat::SystemBeat;
 use crate::breathing::BreathingOverlay;
 use crate::browser::ContentBrowser;
+use crate::coach::CoachValue;
 use crate::gateway::BooruGateway;
 use crate::media::MediaCache;
 use crate::reactor::{
@@ -10,6 +11,7 @@ use crate::reactor::{
 use crate::settings::SettingsManager;
 use crate::types::{BreathingPhase, BreathingStyle, ImageFillMode, LoadedMedia, NavDirection};
 use eframe::egui::{self, ScrollArea};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 pub mod island;
@@ -62,6 +64,7 @@ pub struct ViewManager {
 	pub(crate) coach_model: Option<String>,
 	pub(crate) coach_preset: Option<String>,
 	pub(crate) coach_message: Option<String>,
+	pub(crate) coach_state: HashMap<String, CoachValue>,
 
 	// Gallery animation state
 	gallery_anim_start_offset: f32,
@@ -106,6 +109,7 @@ impl ViewManager {
 			coach_model,
 			coach_preset,
 			coach_message: None,
+			coach_state: HashMap::new(),
 			gallery_anim_start_offset: 0.0,
 			gallery_anim_offset: 0.0,
 			gallery_anim_time: 0.0,
@@ -586,6 +590,34 @@ impl ViewManager {
 									.size(16.0)
 									.color(egui::Color32::WHITE),
 							);
+						});
+				});
+		}
+
+		if ctx.input(|i| i.key_down(egui::Key::R)) {
+			egui::Area::new(egui::Id::new("coach_debug"))
+				.anchor(egui::Align2::LEFT_TOP, egui::vec2(20.0, 20.0))
+				.interactable(false)
+				.order(egui::Order::Foreground)
+				.show(ctx, |ui| {
+					egui::Frame::window(&ctx.style())
+						.fill(egui::Color32::from_black_alpha(220))
+						.inner_margin(12.0)
+						.rounding(8.0)
+						.show(ui, |ui| {
+							ui.heading(
+								egui::RichText::new("Coach mem:")
+									.color(egui::Color32::YELLOW)
+									.strong(),
+							);
+							ui.add_space(8.0);
+							for (k, v) in &self.coach_state {
+								ui.label(
+									egui::RichText::new(format!("{}: {}", k, v))
+										.color(egui::Color32::LIGHT_GRAY)
+										.monospace(),
+								);
+							}
 						});
 				});
 		}
