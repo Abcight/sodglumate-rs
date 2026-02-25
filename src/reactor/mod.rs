@@ -117,11 +117,11 @@ impl Reactor {
 				if let Some(msg) = output.message {
 					let cleaned_msg = msg.replace('\n', " ").replace('\r', "");
 
-					// Split into words and reconstruct lines of max ~60 chars
+					// Split into words and reconstruct lines of max 60 chars
 					let mut current_line = String::new();
 					let mut is_first_line = true;
 					for word in cleaned_msg.split_whitespace() {
-						if current_line.len() + word.len() + 1 > 60 && !current_line.is_empty() {
+						if current_line.len() + word.len() + 1 > 45 && !current_line.is_empty() {
 							if is_first_line {
 								self.view
 									.coach_logs

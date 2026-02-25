@@ -588,7 +588,7 @@ impl ViewManager {
 				.interactable(false)
 				.order(egui::Order::Foreground)
 				.show(ctx, |ui| {
-					let recent_logs = self.coach_logs.iter().rev().take(5).rev();
+					let recent_logs = self.coach_logs.iter().rev().take(20).rev();
 					let outline_color = egui::Color32::from_black_alpha(204);
 					let text_color = egui::Color32::from_rgb(180, 220, 180); // Muted terminal green
 					let font_id = egui::FontId::monospace(font_size);
