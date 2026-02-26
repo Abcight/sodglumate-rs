@@ -576,7 +576,7 @@ impl ViewManager {
 		// Render Coach Overlay
 		if !self.coach_logs.is_empty() {
 			let screen_height = ctx.screen_rect().height();
-			let base_font_size = (screen_height * 0.02).max(12.0);
+			let base_font_size = (screen_height * 0.03).max(16.0);
 			let font_size = base_font_size * 0.75;
 			let margin = (screen_height * 0.03).max(10.0);
 

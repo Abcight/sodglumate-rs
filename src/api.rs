@@ -145,8 +145,19 @@ impl E621Client {
 		log::debug!("Search response body length: {}", text.len());
 
 		let resp_json: PostsResponse = serde_json::from_str(&text)?;
-		log::info!("Found {} posts", resp_json.posts.len());
+		let original_len = resp_json.posts.len();
+		let valid_posts: Vec<Post> = resp_json
+			.posts
+			.into_iter()
+			.filter(|p| p.file.url.is_some())
+			.collect();
 
-		Ok(resp_json.posts)
+		log::info!(
+			"Found {} valid posts (out of {})",
+			valid_posts.len(),
+			original_len
+		);
+
+		Ok(valid_posts)
 	}
 }
