@@ -143,6 +143,14 @@ impl ViewManager {
 				self.image_fill_mode = *mode;
 				ComponentResponse::none()
 			}
+			Event::View(ViewEvent::ToggleImageFillMode) => {
+				match self.image_fill_mode {
+					ImageFillMode::Cover => self.image_fill_mode = ImageFillMode::Fit,
+					ImageFillMode::Fit => self.image_fill_mode = ImageFillMode::FitToGallery,
+					ImageFillMode::FitToGallery => self.image_fill_mode = ImageFillMode::Cover,
+				}
+				ComponentResponse::none()
+			}
 			_ => ComponentResponse::none(),
 		}
 	}
@@ -216,7 +224,7 @@ impl ViewManager {
 		// Detect shift press/release edges for island activation
 		let shift_held = ctx.input(|i| i.modifiers.shift);
 		if shift_held && !self.prev_shift_held {
-			self.island_ctx.activate(&ROOT_ISLAND, 2);
+			self.island_ctx.activate(&ROOT_ISLAND, 3);
 		} else if !shift_held && self.prev_shift_held {
 			self.island_ctx.deactivate();
 		}

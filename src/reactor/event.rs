@@ -107,6 +107,7 @@ pub enum ViewEvent {
 	RequestBreathingToggle,
 	BeatPulse { scale: f32 },
 	SetImageFillMode { mode: ImageFillMode },
+	ToggleImageFillMode,
 }
 
 #[derive(Clone, Debug)]

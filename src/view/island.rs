@@ -1,5 +1,5 @@
 use crate::reactor::{BreathingEvent, Event, SettingsEvent, SourceEvent, ViewEvent};
-use crate::types::{BreathingStyle, ImageFillMode, NavDirection};
+use crate::types::{BreathingStyle, NavDirection};
 use eframe::egui;
 use std::time::{Duration, Instant};
 
@@ -261,38 +261,13 @@ pub static BREATHING_ISLAND: Island = Island {
 	],
 };
 
-pub static VIEW_ISLAND: Island = Island {
-	rows: &[
-		&[
-			emit("Cover", || {
-				Event::View(ViewEvent::SetImageFillMode {
-					mode: ImageFillMode::Cover,
-				})
-			}),
-			emit("Fit", || {
-				Event::View(ViewEvent::SetImageFillMode {
-					mode: ImageFillMode::Fit,
-				})
-			}),
-		],
-		&[
-			emit("Gallery", || {
-				Event::View(ViewEvent::SetImageFillMode {
-					mode: ImageFillMode::FitToGallery,
-				})
-			}),
-			BACK_ENTRY,
-		],
-	],
-};
-
 /// The root island shown when shift is pressed
 pub static ROOT_ISLAND: Island = Island {
 	rows: &[
 		&[
 			push("Autoplay", &AUTOPLAY_ISLAND),
-			push("View", &VIEW_ISLAND),
 			push("Breathing", &BREATHING_ISLAND),
+			emit("View", || Event::View(ViewEvent::ToggleImageFillMode)),
 		],
 		&[
 			emit("Previous image", || {
