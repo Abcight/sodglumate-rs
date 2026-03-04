@@ -71,6 +71,10 @@ pub struct ViewManager {
 	gallery_anim_offset: f32,
 	gallery_anim_time: f32,
 	last_gallery_index: usize,
+
+	// Zoom and pan state
+	user_zoom: f32,
+	user_pan_offset: egui::Vec2,
 }
 
 impl ViewManager {
@@ -114,6 +118,8 @@ impl ViewManager {
 			gallery_anim_offset: 0.0,
 			gallery_anim_time: 0.0,
 			last_gallery_index: 0,
+			user_zoom: 1.0,
+			user_pan_offset: egui::Vec2::ZERO,
 		}
 	}
 
@@ -122,6 +128,8 @@ impl ViewManager {
 			Event::View(ViewEvent::MediaReady) => {
 				self.image_load_time = Instant::now();
 				self.user_has_panned = false;
+				self.user_zoom = 1.0;
+				self.user_pan_offset = egui::Vec2::ZERO;
 				self.error_msg = None;
 				ComponentResponse::none()
 			}
@@ -715,6 +723,66 @@ impl ViewManager {
 					let available_size = ui.available_size();
 					let img_size = texture.size_vec2();
 
+					if matches!(
+						self.image_fill_mode,
+						ImageFillMode::Fit | ImageFillMode::FitToGallery
+					) {
+						if !island_active {
+							let dt = ctx.input(|i| i.stable_dt);
+
+							if ctx.input(|i| i.key_down(egui::Key::E)) {
+								self.user_zoom = (self.user_zoom + dt * 4.0).min(5.0);
+								ctx.request_repaint();
+							}
+							if ctx.input(|i| i.key_down(egui::Key::Q)) {
+								self.user_zoom = (self.user_zoom - dt * 4.0).max(1.0);
+								ctx.request_repaint();
+							}
+
+							if self.user_zoom > 1.0 {
+								let speed = 1600.0 * dt;
+								if ctx.input(|i| {
+									i.key_down(egui::Key::ArrowRight) || i.key_down(egui::Key::D)
+								}) {
+									self.user_pan_offset.x -= speed;
+									ctx.request_repaint();
+								}
+								if ctx.input(|i| {
+									i.key_down(egui::Key::ArrowLeft) || i.key_down(egui::Key::A)
+								}) {
+									self.user_pan_offset.x += speed;
+									ctx.request_repaint();
+								}
+								if ctx.input(|i| {
+									i.key_down(egui::Key::ArrowDown) || i.key_down(egui::Key::S)
+								}) {
+									self.user_pan_offset.y -= speed;
+									ctx.request_repaint();
+								}
+								if ctx.input(|i| {
+									i.key_down(egui::Key::ArrowUp) || i.key_down(egui::Key::W)
+								}) {
+									self.user_pan_offset.y += speed;
+									ctx.request_repaint();
+								}
+							} else {
+								self.user_pan_offset = egui::Vec2::ZERO;
+							}
+						}
+
+						let fit_scale =
+							(available_size.x / img_size.x).min(available_size.y / img_size.y);
+						let fit_size = img_size * fit_scale * self.user_zoom;
+						let pan_limit = ((fit_size - available_size) * 0.5).max(egui::Vec2::ZERO);
+						self.user_pan_offset.x =
+							self.user_pan_offset.x.clamp(-pan_limit.x, pan_limit.x);
+						self.user_pan_offset.y =
+							self.user_pan_offset.y.clamp(-pan_limit.y, pan_limit.y);
+					} else {
+						self.user_zoom = 1.0;
+						self.user_pan_offset = egui::Vec2::ZERO;
+					}
+
 					// Apply beat pulse if enabled
 					let pulse = if self.beat_pulse_enabled && self.beat_intensity > 0.01 {
 						ctx.request_repaint();
@@ -777,14 +845,14 @@ impl ViewManager {
 						ImageFillMode::Fit => {
 							let width_ratio = available_size.x / img_size.x;
 							let height_ratio = available_size.y / img_size.y;
-							let scale = width_ratio.min(height_ratio);
+							let scale = width_ratio.min(height_ratio) * self.user_zoom;
 							let base_display_size = img_size * scale;
 
 							ui.centered_and_justified(|ui| {
 								let (rect, _response) =
 									ui.allocate_exact_size(available_size, egui::Sense::hover());
 
-								let center = rect.center();
+								let center = rect.center() + self.user_pan_offset;
 								let pulsed_size = base_display_size * pulse;
 								let pulsed_rect = egui::Rect::from_center_size(center, pulsed_size);
 								let uv = egui::Rect::from_min_max(
@@ -897,9 +965,12 @@ impl ViewManager {
 										}
 										let width_ratio = space.width() / img_size.x;
 										let height_ratio = space.height() / img_size.y;
-										let scale = width_ratio.min(height_ratio);
+										let scale = width_ratio.min(height_ratio) * self.user_zoom;
 										let size = img_size * scale;
-										egui::Rect::from_center_size(space.center(), size)
+										egui::Rect::from_center_size(
+											space.center() + self.user_pan_offset,
+											size,
+										)
 									};
 
 								let cover_rect =
