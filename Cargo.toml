@@ -38,9 +38,6 @@ candle-nn = { version = "0.9.2" }
 candle-transformers = { version = "0.9.2" }
 tokenizers = "0.21.0"
 
-[profile.dev.package."*"]
-opt-level = 3
-
 [profile.release]
 opt-level = 3
 lto = true
